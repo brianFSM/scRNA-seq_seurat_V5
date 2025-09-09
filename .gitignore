@@ -1,0 +1,39 @@
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+.Rproj.user/*
+.Rproj*
+.Rapp.history
+
+# Quarto/Rmd junk
+*_cache/
+_cache/
+.Rcheck/
+*.nb.html
+*.utf8.md
+
+# Packrat/renv (commit lockfile but not the library)
+renv/library/
+renv/staging/
+.packrat/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Data (version pointers & small samples are okay; raw/big data is not)
+data/
+*.rds
+*.RDS
+*.rda
+*.RData
+
+# Logs & temp
+logs/
+*.log
+tmp/
+
+# charts and graphs
+/figures

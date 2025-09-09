@@ -1,0 +1,254 @@
+---
+output:
+  html_document:
+    pandoc_args: './common.yaml'
+params:
+  config.args: "./config.yaml"
+---
+
+# Part 2: Some QA/QC, filtering, normalization, and assigning variable genes
+
+## Load libraries
+```{r libraries, warning=FALSE,error=FALSE,message=FALSE}
+library(Seurat)
+library(biomaRt)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(future)
+library(yaml)
+```
+
+```{r prepare_inline_variables, echo = FALSE}
+# get the datetime and set it to variable
+todays.date <- Sys.Date()
+formatted.date <- format(todays.date, format="%B %d %Y")
+
+config.args <- read_yaml(params$config.args)
+
+```
+
+```{r user_vals, warning=FALSE,error=FALSE,message=FALSE, echo=FALSE}
+r.obj.loc <- config.args$data$`rds-file-path`
+organism <- config.args$project$organism
+
+mito.cutoff = config.args$analysis$part2$mito_cutoff
+RNA.count.floor = config.args$analysis$part2$RNA_count_floor
+RNA.count.ceiling = config.args$analysis$part2$RNA_count_ceiling
+feature.count.floor = config.args$analysis$part2$feature_count_floor
+feature.count.ceiling = config.args$analysis$part2$feature_count_ceiling
+rbc.cutoff = config.args$analysis$part2$rbc_cutoff
+ribo.cutoff = config.args$analysis$part2$ribo_cutoff
+
+run_tests <- config.args$analysis$run_tests
+node.type <- config.args$analysis$node_type
+
+part1.suffix <- config.args$analysis$part1$part1_suffix
+part2.suffix <- config.args$analysis$part2$part2_suffix
+
+# Generally I don't expect part1 to be modified, but I'm sure I'll be proven wrong
+# For now don't allow other file suffixes for the part1 output to avoid
+# having to generate it for every downstream mod
+part2.rds.open.file <- config.args$analysis$part2$part2_rds_open_filename
+part2.rds.open.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), part2.rds.open.file )
+part2.rds.open.path <- file.path(r.obj.loc, part2.rds.open.file)
+
+#--------------------------------------------------#
+# Set up the filenames by taking the normal output
+# filename from the config and adding the suffix
+#--------------------------------------------------#
+part2.rds.save.file <- config.args$analysis$part2$part2_rds_save_filename
+part2.rds.save.file <- sub(".RDS", paste0(part2.suffix, ".RDS"), part2.rds.save.file )
+part2.rds.save.path <- file.path(r.obj.loc, part2.rds.save.file)
+
+part2.file.for.report <- config.args$analysis$part2$part2_report_tables_filename
+part2.file.for.report <-sub(".RData", paste0(part2.suffix, ".RData"), part2.file.for.report)
+part2.file.report.path <- file.path(r.obj.loc, part2.file.for.report)
+
+ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
+ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
+```
+
+
+```{r define_save_plots, echo = FALSE}
+
+save_png_plot <- function(plot, filename){
+  save.path <- file.path(ggplot.directory, paste0("part2", part2.suffix, "_", filename))
+  ggsave(save.path, plot)
+}
+
+```
+### This report was generated on `r formatted.date`
+
+* node.type: `r node.type`
+
+* starting with rds object at `r part2.rds.open.path`
+* saving rds object to `r part2.rds.save.path`
+* saving file for report at `r part2.file.report.path`
+
+* mito cutoff: `r mito.cutoff`
+* RNA count floor: `r RNA.count.floor`
+* RNA count ceiling: `r RNA.count.ceiling`
+* Feature count floor: `r feature.count.floor`
+* Feature count ceiling: `r feature.count.ceiling`
+* RBC cutoff: `r rbc.cutoff`
+* Ribosomal cutoff: `r ribo.cutoff`
+
+
+
+```{r get_num_cores_available, echo = FALSE}
+if (node.type == "compute"){
+  # If using a compute node, then put this in the submission script:
+  # export MC_CORES=${SLURM_NTASKS}
+  num.cores.available <- as.numeric(Sys.getenv("SLURM_NTASKS"))
+} else {
+  library(parallel)
+  num.cores.available <- detectCores() 
+}
+```
+
+## Load the Seurat object from part 1
+
+```{r load_data, warning=FALSE,error=FALSE,message=FALSE}
+experiment.aggregate <- readRDS(file=part2.rds.open.path)
+set.seed(12345)
+```
+
+
+<br/>
+
+## Before Filtering
+
+Ridgeplots before applying filters
+
+```{r generate_ridgeplot_pre, warning=FALSE,error=FALSE,message=FALSE}
+ridgeplot.prefiltering <- RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito", "percent.rbc", "percent.ribo"), ncol = 2)
+# RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito"), ncol = 2)
+```
+
+<br/>
+
+## Proposed filtering cutoffs
+
+Gene Plot, scatter plot of gene expression across cells, (colored by sample), drawing horizontal an verticale lines at proposed filtering cutoffs.
+
+```{r relationships, warning=FALSE,error=FALSE,message=FALSE}
+# Set these cutoffs here and use them in the plots AND in the filtering
+
+nCount.mito.scatter <- FeatureScatter(experiment.aggregate, "nCount_RNA", "percent.mito") + 
+  geom_vline(xintercept = c(RNA.count.floor,RNA.count.ceiling)) + 
+  geom_hline(yintercept = mito.cutoff)
+
+nFeature.mito.scatter <- FeatureScatter(experiment.aggregate, "nFeature_RNA", "percent.mito") + 
+  geom_vline(xintercept = c(feature.count.floor, feature.count.ceiling)) + 
+  geom_hline(yintercept = mito.cutoff)
+
+nCount.nFeature.scatter <- FeatureScatter(experiment.aggregate, "nCount_RNA", "nFeature_RNA")  + 
+  geom_vline(xintercept = c(RNA.count.floor,RNA.count.ceiling)) + 
+  geom_hline(yintercept = c(feature.count.floor, feature.count.ceiling))
+
+ribo.rbc.scatter <- FeatureScatter(experiment.aggregate, "percent.ribo", "percent.rbc")+ 
+  geom_vline(xintercept = ribo.cutoff) + 
+  geom_hline(yintercept = rbc.cutoff)
+
+ribo.mito.scatter <- FeatureScatter(experiment.aggregate, "percent.ribo", "percent.mito")+ 
+  geom_vline(xintercept = ribo.cutoff) + 
+  geom_hline(yintercept = mito.cutoff)
+
+mito.rbc.scatter <- FeatureScatter(experiment.aggregate, "percent.mito", "percent.rbc")+ 
+  geom_vline(xintercept = mito.cutoff) + 
+  geom_hline(yintercept = rbc.cutoff)
+
+nFeature.rbc.scatter <- FeatureScatter(experiment.aggregate, "nFeature_RNA", "percent.rbc")+ 
+  geom_vline(xintercept = c(feature.count.floor, feature.count.ceiling)) + 
+  geom_hline(yintercept = rbc.cutoff)
+
+nCount.mito.scatter 
+nFeature.mito.scatter 
+nCount.nFeature.scatter 
+ribo.rbc.scatter 
+ribo.mito.scatter 
+mito.rbc.scatter 
+nFeature.rbc.scatter 
+
+save_png_plot(plot = nCount.mito.scatter, filename = "nCount_mito.png")
+save_png_plot(plot = nFeature.mito.scatter, filename = "nFeat_mito.png")
+save_png_plot(plot = nCount.nFeature.scatter, filename = "nCount_nFeat.png")
+save_png_plot(plot = ribo.rbc.scatter, filename = "ribo_rbc.png")
+save_png_plot(plot = ribo.mito.scatter, filename = "ribo_mito.png")
+save_png_plot(plot = mito.rbc.scatter, filename = "mito_rbc.png")
+save_png_plot(plot = nFeature.rbc.scatter, filename = "nFeat_rbc.png")
+```
+
+## Cell filtering stats
+
+We use the cutoffs above to filter out cells. 
+
+```{r apply_filtering, warning=FALSE,error=FALSE,message=FALSE}
+before.table <- table(experiment.aggregate$orig.ident)
+
+experiment.aggregate <- subset(experiment.aggregate, percent.mito <= mito.cutoff)
+experiment.aggregate <- subset(experiment.aggregate, nCount_RNA >= RNA.count.floor & nCount_RNA <= RNA.count.ceiling)
+experiment.aggregate <- subset(experiment.aggregate, nFeature_RNA >= feature.count.floor & nFeature_RNA <= feature.count.ceiling)
+experiment.aggregate <- subset(experiment.aggregate, percent.rbc >= rbc.cutoff)
+experiment.aggregate <- subset(experiment.aggregate, percent.ribo <= ribo.cutoff)
+
+after.table <- table(experiment.aggregate$orig.ident)
+
+combo.table <- rbind(before.table,
+                     after.table)
+
+row.names(combo.table) <- c("Num cells before filtering", "Num cells after filtering")
+
+pretty.combo.table <- combo.table %>%
+  kable(caption = "Cells present before and after filtering")%>%
+  pack_rows("Filtering results", 1, 2, label_row_css = "background-color: #666; color: #fff;") %>%
+  kable_styling("striped")
+
+pretty.combo.table
+```
+
+<br/>
+
+## Filtering comparison 
+
+Ridgeplots before filtering:
+```{r ridgeplot_pre, warning=FALSE,error=FALSE,message=FALSE}
+ridgeplot.prefiltering
+save_png_plot(plot = ridgeplot.prefiltering, 
+              filename = "ridgeplot_prefiltering.png")
+```
+
+
+Ridgeplots after filtering
+```{r ridgeplot_post, warning=FALSE,error=FALSE,message=FALSE}
+ridgeplot.postfiltering <- RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito", "percent.rbc", "percent.ribo"), ncol = 2)
+ridgeplot.postfiltering
+
+save_png_plot(plot = ridgeplot.postfiltering, 
+              filename = "ridgeplot_postfiltering.png")
+```
+
+<br/>
+## Finally, lets save the filtered and normalized data
+```{r save_r, warning=FALSE,error=FALSE,message=FALSE}
+saveRDS(experiment.aggregate, file=part2.rds.save.path)
+
+to.save.for.report <- c("mito.cutoff", 
+                        "RNA.count.floor", 
+                        "RNA.count.ceiling", 
+                        "feature.count.floor", 
+                        "feature.count.ceiling", 
+                        "rbc.cutoff", 
+                        "ribo.cutoff",
+												"pretty.combo.table"
+                        )
+
+save(list = to.save.for.report, file=part2.file.report.path)
+```
+
+## Session Information
+```{r session_info, warning=FALSE,error=FALSE, message=FALSE}
+sessionInfo()
+```
+

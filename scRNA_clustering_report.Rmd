@@ -1,0 +1,284 @@
+---
+output:
+  html_document:
+    pandoc_args: './common.yaml'
+params:
+  config.args: "./config.yaml"
+---
+
+
+```{r load_packages_and_rdata, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+library(Seurat)
+library(kableExtra)
+library(ggplot2)
+library(knitr)
+library(yaml)
+```
+
+```{r user_vars, echo = FALSE}
+
+# get the datetime and set it to variable for inline printing
+todays.date <- Sys.Date()
+formatted.date <- format(todays.date, format="%B %d %Y")
+
+# Import the config file
+
+# config.args <- read_yaml("/home/bwp9287/pipelines/scRNA-Seq/config_integrated.yaml")
+config.args <- read_yaml(params$config.args)
+
+# Info for printing in the report
+project.description <- config.args$project$`project-decription`
+cell.cycle.string <- config.args$project$run_cell_cycle
+run_cell_cycle=TRUE
+
+if (cell.cycle.string == "FALSE"){
+  run_cell_cycle=FALSE
+} 
+
+
+num.pcs <- config.args$analysis$part4$num_pcs
+
+# set project variables
+r.obj.loc <- config.args$data$`rds-file-path` # Output folder
+resolution.selection <- config.args$analysis$part5$resolution_selection
+
+part3.suffix <- config.args$analysis$part3$part3_suffix
+part4.suffix <- config.args$analysis$part4$part4_suffix
+part5.suffix <- config.args$analysis$part5$part5_suffix
+
+# Get paths for the files containing the info to make this report
+part3.file.for.report <- config.args$analysis$part3$part3_report_tables_filename
+part3.file.for.report <-sub(".RData", paste0(part3.suffix, ".RData"), part3.file.for.report)
+part3.file.report.path <-file.path(r.obj.loc, part3.file.for.report)
+
+part4.file.for.report <- config.args$analysis$part4$part4_report_tables_filename
+part4.file.for.report <-sub(".RData", paste0(part4.suffix, ".RData"), part4.file.for.report)
+part4.file.report.path <-file.path(r.obj.loc, part4.file.for.report)
+
+part5.file.for.report <- config.args$analysis$part5$part5_report_tables_filename
+part5.file.for.report <-sub(".RData", paste0(part5.suffix, ".RData"), part5.file.for.report)
+part5.file.report.path <-file.path(r.obj.loc, part5.file.for.report)
+
+ggplot.subdir <- config.args$analysis$part1$ggplot_dir
+
+# Load the report files
+load(part3.file.report.path)
+load(part4.file.report.path)
+load(part5.file.report.path)
+
+ggplot.directory <- file.path(r.obj.loc, ggplot.subdir)
+
+# create ggplot folder if it doesn't exist already
+if (!file.exists(ggplot.directory)) {
+
+ dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
+
+}
+```
+
+<br/>
+
+# Project Description:
+
+`r project.description`
+
+
+<!-- note: These br html tags are used to insert blank lines in the final report.  -->
+<br/>
+
+## More processing before clustering
+See the QC html report for info on the filtering that has been applied so far.
+
+After the filtering in part 1, there are a few more steps before clustering.
+
+First the data are log normalized, and then scaled.
+
+ScaleData - Scales and centers genes in the dataset. I've regressed out cell cycle results S.Score and G2M.Score (if mouse or human), percentage mitochondria (percent.mito) and the number of features (nFeature_RNA).
+
+## PCA
+
+PCA is used for dimensionality reduction. The objective here is to try and isolate the most relevant features in the dataset in order to speed up the downstream analysis. We want to balance the tradeoff between keeping too much data (and adding time to the analysis) and not keeping enough data (and losing some of the signal).
+
+In order to pick the proper number of PCs to use we can look at a number of different figures, but I'll only show the elbow plot here. Seurat's ElbowPlot function plots the standard deviations of the principle components for easy identification of an elbow in the graph. This elbow often corresponds well with the significant PCs and is much faster to run.  This is the traditional approach to selecting principal components.
+
+
+```{r load_pre-pca_obj, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+elbow.plot.path <- file.path(ggplot.directory, paste0("part3", part3.suffix, "_", "elbow_plot.png"))
+
+knitr::include_graphics(elbow.plot.path)
+```
+<br/>
+<br/>
+
+<!-- todo: replace numpcs below with the number of pcs you used, and uncomment the line below -->
+We tend to err on the side of keeping too much data and so I chose to go with `r num.pcs` PCs for the downstream analysis.
+
+## Clustering results
+
+Clustering analysis allows for using different 'resolutions'. The resolution sets the ‘granularity’ of the downstream clustering, with increased values leading to a greater number of clusters.
+
+<!-- todo: fill out the range data below with the numbers you used, if you did clustering with a range of resolutions -->
+Here is a table showing the number of clusters resulting from different resolution values, ranging from 0.25 to 3.75, incremented by 0.5:
+<br/>
+```{r resolution_clust_num_table, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+clusters.by.resolution.table
+
+# sapply(grep("res",colnames(experiment.aggregate@meta.data),value = TRUE),
+#        function(x) length(unique(experiment.aggregate@meta.data[,x]))) %>% kable(caption = "Number of clusters by resolution", col.names = "Number of clusters", jalign = "c") %>% kable_styling()
+
+```
+<br/>
+<br/>
+
+<!-- todo: fill out your values below and uncomment the line below-->
+And here are the clustering results looking at the 4 lowest resolutions (0.25, 0.75, 1.25, 1.75) with UMAP reduction (NOT TSNE)
+
+<br/>
+
+```{r resolution_clust_num_plots, warning=FALSE, error=FALSE, message=FALSE,  echo=FALSE, fig.height = 12, fig.width = 12}
+
+umap.dimplot1.path <- file.path(ggplot.directory, paste0("part4", part4.suffix, "_", "umap_dimplot1.png"))
+
+knitr::include_graphics(umap.dimplot1.path)
+
+```
+<br/>
+<br/>
+And here are the clustering results looking at the 4 highest resolutions (2.25, 2.75, 3.25, 3.75)
+
+<br/>
+
+```{r resolution_clust_num_plots_2, warning=FALSE, error=FALSE, message=FALSE,  echo=FALSE, fig.height = 12, fig.width = 12}
+
+umap.dimplot2.path <- file.path(ggplot.directory, paste0("part4", part4.suffix, "_", "umap_dimplot2.png"))
+
+knitr::include_graphics(umap.dimplot2.path)
+```
+<br/>
+<br/>
+<!-- todo: report the resolution you used and the reason why, then uncomment the line below -->
+A resolution of `r resolution.selection` made the most sense to me, simply by looking at the plots and trying to gauge where clusters start and end. Feel free to ask for the downstream results of other resolutions.
+
+All of the plots below are based on a resolution of `r resolution.selection`
+<br/>
+<br/>
+
+### Plot UMAP coloring by the slot 'ident' (i.e. cluster number, default).
+```{r plot_umap, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+cluster.umap.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", "cluster_umap.png"))
+
+knitr::include_graphics(cluster.umap.path)
+```
+<br/>
+<br/>
+
+### Plot UMAP coloring by the slot 'orig.ident' (sample names)
+```{r plot_orig_ident, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+sample.umap.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", "sample_umap.png"))
+
+knitr::include_graphics(sample.umap.path)
+```
+
+<br/>
+<br/>
+
+
+```{r cells_in_clusters_by_sample_table, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+# table(Idents(experiment.aggregate),experiment.aggregate$orig.ident) %>% kable(caption = "Number of Cells in each cluster, by sample", jalign = "c") %>% kable_styling()
+
+clusters.to.sample.table
+```
+
+<br/>
+<br/>
+
+### Number of UMIs (i.e. how many unique rna molecules are in each cell):
+```{r plot_rna, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+
+nUMI.featplot.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", "nUMI_featplot.png"))
+
+knitr::include_graphics(nUMI.featplot.path)
+```
+
+<br/>
+<br/>
+
+### Number of genes present (i.e. how many different genes are represented by the UMIs):
+```{r plot_feature, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+nGenes.featplot.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", "nGenes_featplot.png"))
+
+knitr::include_graphics(nGenes.featplot.path)
+```
+
+<br/>
+<br/>
+
+### Percent mitochondrial
+```{r plot_mito, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+pctmito.featplot.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", "pctmito_featplot.png"))
+
+knitr::include_graphics(pctmito.featplot.path)
+```
+<br/>
+<br/>
+
+`r if (run_cell_cycle) {"#### Table of cell cycle"}`
+
+```{r cellcycle_table, warning=FALSE, error=FALSE, message=FALSE, echo=FALSE, eval=run_cell_cycle}
+cell.cycle.table
+# table(experiment.aggregate@meta.data$Phase) %>% kable(caption = "Number of Cells in each Cell Cycle Stage", col.names = c("Stage", "Count"), align = "c") %>% kable_styling()
+```
+<br/>
+<br/>
+
+
+<!-- #### Table of doublet predictions -->
+```{r doublet_figure, warning=FALSE, error=FALSE, message=FALSE, eval=FALSE, echo=FALSE}
+doublet.dimplot.path <- file.path(ggplot.directory, paste0("part4", part4.suffix, "_", "doublet_dimplot.png"))
+
+knitr::include_graphics(doublet.dimplot.path)
+```
+<br/>
+<br/>
+
+
+### Marker genes
+
+For each cluster, which genes are differentially expressed in that 
+cluster compared to all other clusters combined?
+```{r gene_feature, warning=FALSE, error=FALSE, message=FALSE, echo = FALSE, fig.width = 25, fig.height = 20}
+figure.list <- list()
+
+# Note that knitr::include_graphics doesn't work in a loop. Instead, I'll make a list of lists of filenames
+figure.list <- sapply(num.clusters.list, function(cluster.num){
+
+  feat.plot.path <- file.path(ggplot.directory, 
+                              paste0("part5", 
+                                     part5.suffix, 
+                                     "_marker_gene_featPlot_cl_", 
+                                     cluster.num, 
+                                     ".png"))
+  
+  vln.plot.path <- file.path(ggplot.directory, 
+                             paste0("part5", 
+                                    part5.suffix, 
+                                    "_marker_gene_vlnPlot_cl_", 
+                                    cluster.num, 
+                                    ".png"))
+  
+  figure.list <- append(figure.list, feat.plot.path)
+  figure.list <- append(figure.list, vln.plot.path)
+
+})
+
+knitr::include_graphics(unlist(figure.list))
+```
+
+<br/>
+<br/>
+
+## Session Information
+```{r sessioinfo}
+sessionInfo()
+```
+

@@ -1,0 +1,352 @@
+---
+output:
+  html_document:
+    pandoc_args: './common.yaml'
+params:
+  config.args: "./config.yaml"
+---
+
+# Part 5: Marker genes
+
+```{r setup_opt, warning=FALSE, error=FALSE, message=FALSE, echo = F, eval=F}
+options(width = 450)
+```
+
+## Load libraries
+```{r load_libraries, warning=FALSE, error=FALSE, message=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(future)
+library(kableExtra)
+library(cowplot)
+library(yaml)
+```
+
+```{r prepare_inline_variables, echo = FALSE}
+# get the datetime and set it to variable
+todays.date <- Sys.Date()
+formatted.date <- format(todays.date, format="%B %d %Y")
+
+config.args <- read_yaml(params$config.args)
+```
+
+
+```{r user_vals, warning=FALSE, error=FALSE, message=FALSE, echo = FALSE}
+r.obj.loc <- config.args$data$`rds-file-path`
+
+resolution.selection <- config.args$analysis$part5$resolution_selection
+
+run_tests <- config.args$analysis$run_tests
+cell.cycle.string <- config.args$project$run_cell_cycle
+run_cell_cycle=TRUE
+
+if (cell.cycle.string == "FALSE"){
+  run_cell_cycle=FALSE
+} 
+node.type <- config.args$analysis$node_type
+
+part4.suffix <- config.args$analysis$part4$part4_suffix
+part5.suffix <- config.args$analysis$part5$part5_suffix
+
+part5.rds.open.file <- config.args$analysis$part5$part5_rds_open_filename
+part5.rds.open.file <- sub(".RDS", paste0(part4.suffix, ".RDS"), part5.rds.open.file )
+part5.rds.open.path <- file.path(r.obj.loc, part5.rds.open.file)
+
+part5.rds.save.file <- config.args$analysis$part5$part5_rds_save_filename
+part5.rds.save.file <- sub(".RDS", paste0(part5.suffix, ".RDS"), part5.rds.save.file )
+part5.rds.save.path <- file.path(r.obj.loc, part5.rds.save.file)
+
+part5.file.for.report <- config.args$analysis$part5$part5_report_tables_filename
+part5.file.for.report <- sub(".RData", paste0(part5.suffix, ".RData"), part5.file.for.report )
+part5.file.report.path <- file.path(r.obj.loc, part5.file.for.report)
+
+ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
+ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
+
+marker.gene.dir.name <- config.args$analysis$part5$marker_gene_dir
+marker.gene.dir.name <- paste0(marker.gene.dir.name, part5.suffix)
+marker.gene.dir <- file.path(r.obj.loc, marker.gene.dir.name)
+
+# create ggplot folder if it doesn't exist already
+if (!file.exists(ggplot.directory)) {
+ dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
+}
+
+if (!file.exists(marker.gene.dir)) {
+ dir.create(marker.gene.dir, showWarnings = FALSE, recursive = TRUE)
+}
+```
+
+```{r define_save_plots, echo = FALSE}
+
+save_png_plot <- function(plot, filename){
+  save.path <- file.path(ggplot.directory, paste0("part5", part5.suffix, "_", filename))
+  ggsave(save.path, plot)
+}
+
+```
+
+### This report was generated on `r formatted.date`
+
+* clustering resolution: `r resolution.selection`
+* node.type: `r node.type`
+
+* starting with rds object at `r part5.rds.open.path`
+* saving rds object to `r part5.rds.save.path`
+* saving file for report at `r part5.file.report.path`
+* ggplot figures at `r ggplot.directory`
+* Lists of marker genes are at `r marker.gene.dir`
+
+```{r for_testing_only, eval = FALSE, echo = FALSE}
+
+# If you've already run findAllMarkers but want to test other parts
+# of this script, then set eval to TRUE here and set the find_all_markers
+# code chunk below to eval=FALSE
+load(file=part5.rds.save.path)
+
+```
+
+
+```{r get_num_cores_available, echo = FALSE}
+if (node.type == "compute"){
+  # If using a compute node, then put this in the submission script:
+  # export MC_CORES=${SLURM_NTASKS}
+  num.cores.available <- as.numeric(Sys.getenv("SLURM_NTASKS"))
+} else {
+  library(parallel) 
+  num.cores.available <- detectCores() 
+}
+```
+
+## Load the Seurat object from part 4
+
+```{r load_data, warning=FALSE, error=FALSE, message=FALSE}
+experiment.aggregate <- readRDS(file=part5.rds.open.path)
+Idents(experiment.aggregate) <- resolution.selection
+```
+
+
+### Choosing a resolution
+
+Table of cluster to sample assignments.
+```{r cells_per_res_sample, warning=FALSE, error=FALSE, message=FALSE}
+clusters.to.sample.table <- table(Idents(experiment.aggregate),experiment.aggregate$orig.ident) %>% kable(caption = "Number of Cells in each cluster, by sample", jalign = "c") %>% kable_styling()
+# table(Idents(experiment.aggregate),experiment.aggregate$orig.ident)
+# clusters.to.sample.table <- sapply(grep("res",colnames(experiment.aggregate@meta.data),value = TRUE),
+#        function(x) length(unique(experiment.aggregate@meta.data[,x]))) %>% kable(caption = "Number of clusters by resolution", col.names = "Number of clusters", jalign = "c") %>% kable_styling()
+
+clusters.to.sample.table
+```
+
+<!-- Plot TSNE coloring by the slot 'ident' (default). -->
+<!-- ```{r plot_tsne, warning=FALSE, error=FALSE, message=FALSE} -->
+<!-- DimPlot(object = experiment.aggregate, pt.size=0.5, reduction = "tsne", label = T) -->
+<!-- ``` -->
+
+
+### Plot uMap coloring by the slot 'ident' (default).
+```{r plot_umap, warning=FALSE, error=FALSE, message=FALSE}
+cluster.umap <- DimPlot(object = experiment.aggregate, 
+                        pt.size=0.5, 
+                        reduction = "umap", 
+                        label = T)
+
+cluster.umap
+
+save_png_plot(plot = cluster.umap, filename = "cluster_umap.png")
+```
+
+### Plot UMAP  coloring by the slot 'orig.ident' (sample names) with alpha colors turned on. A pretty picture
+```{r pretty_pre, warning=FALSE, error=FALSE, message=FALSE}
+sample.umap <- DimPlot(object = experiment.aggregate, group.by="orig.ident", pt.size=0.5, reduction = "umap" )
+
+sample.umap
+save_png_plot(plot = sample.umap, filename = "sample_umap.png")
+```
+
+
+
+`r if (run_cell_cycle) {"### uMAP plot by cell cycle"}`
+```{r plot_cellcycle, warning=FALSE, error=FALSE, message=FALSE, eval=run_cell_cycle}
+cellcycle.umap <- DimPlot(object = experiment.aggregate, pt.size=0.5, group.by = "Phase", reduction = "umap" )
+
+cellcycle.umap
+save_png_plot(plot = cellcycle.umap, filename = "cellcycle_umap.png")
+```
+
+
+### Use feature plot to plot our read valued metadata, like nUMI, Feature count, and percent Mito
+
+FeaturePlot can be used to color cells with a 'feature', non categorical data, like number of UMIs
+```{r plot_rna, warning=FALSE, error=FALSE, message=FALSE}
+nUMI.featureplot <- FeaturePlot(experiment.aggregate, features = c('nCount_RNA'), pt.size=0.5)
+
+nUMI.featureplot
+save_png_plot(plot = nUMI.featureplot, filename = "nUMI_featplot.png")
+```
+and number of genes present
+```{r plot_feature, warning=FALSE, error=FALSE, message=FALSE}
+nGenes.featureplot <- FeaturePlot(experiment.aggregate, features = c('nFeature_RNA'), pt.size=0.5)
+
+nGenes.featureplot
+save_png_plot(plot = nGenes.featureplot, "nGenes_featplot.png")
+```
+
+percent mitochondrial
+```{r plot_mito, warning=FALSE, error=FALSE, message=FALSE}
+pctmito.featureplot <- FeaturePlot(experiment.aggregate, features = c('percent.mito'), pt.size=0.5)
+
+pctmito.featureplot
+save_png_plot(plot = pctmito.featureplot, filename = "pctmito_featplot.png")
+```
+
+
+## Identifying Marker Genes
+
+Seurat can help you find markers that define clusters via differential expression.
+
+`FindMarkers` identifies markers for a cluster relative to all other clusters.
+
+`FindAllMarkers` does so for all clusters
+
+`FindAllMarkersNode` defines all markers that split a Node from the cluster tree
+
+### FindAllMarkers can be used to automate the process across all genes.
+
+```{r find_all_markers, warning=FALSE, error=FALSE, message=FALSE, eval=TRUE}
+DefaultAssay(experiment.aggregate) <- "RNA"
+
+markers_all <- FindAllMarkers(
+    object = experiment.aggregate,
+    only.pos = TRUE,
+    min.pct = 0.25,
+    thresh.use = 0.25
+)
+
+markers_all_single <- markers_all[markers_all$gene %in% names(table(markers_all$gene))[table(markers_all$gene) == 1],]
+
+```
+
+
+pct.1 and pct.2 are the proportion of cells with expression above 0 in ident.1 and ident.2 respectively. p_val is the raw p_value associated with the differntial expression test with adjusted value in p_val_adj. avg_logFC is the average log fold change difference between the two groups.
+
+avg_diff appears to be the difference in log(x = mean(x = exp(x = x) - 1) + 1) between groups.  It doesn’t seem like this should work out to be the signed ratio of pct.1 to pct.2 so I must be missing something.  It doesn’t seem to be related at all to how the p-values are calculated so maybe it doesn’t matter so much, and the sign is probably going to be pretty robust to how expression is measured.
+
+
+### Feature plots and Violin Plots of Marker Genes
+```{r gene_feature, warning=FALSE, error=FALSE, message=FALSE, eval=TRUE, fig.width = 25, fig.height = 20}
+feat_plots_top_genes <- function(cluster.num){  
+  # cluster.num = 1
+  
+  saved.fig.width = 25
+  saved.fig.height = 20
+  
+  print(paste0("Cluster number ", cluster.num, ", width: ", saved.fig.width, 
+               ", height: ", saved.fig.height))
+  curr.markers <- markers_all[markers_all$cluster == cluster.num,] 
+  num.markers.to.plot <- 6
+  # print(head(curr.markers))
+
+  feat.plot.path <- file.path(ggplot.directory, 
+                              paste0("part5", part5.suffix, "_marker_gene_featPlot_cl_", cluster.num, ".png"))
+  vln.plot.path <- file.path(ggplot.directory, 
+                             paste0("part5", part5.suffix, "_marker_gene_vlnPlot_cl_", cluster.num, ".png"))
+
+  feat.plot.list <- FeaturePlot(
+    experiment.aggregate,
+    curr.markers$gene[1:num.markers.to.plot],
+    cols = c("lightgrey", "blue"),
+    ncol = 3,
+    pt.size = 2,
+    label.size = 30)
+
+  # Fix the axis labels and main title sizes for the feature plots
+  for (i in 1:num.markers.to.plot){
+    feat.plot.list[[i]] <- feat.plot.list[[i]] + theme(axis.text.x = element_text(angle=45, hjust=1, size=30),
+                                                       axis.text.y = element_text(size = 30),
+                                                       plot.title = element_text(size=30))
+  }
+
+  plot.title <- ggdraw() + draw_label(paste0("Cluster ", cluster.num), fontface = 'bold', size = 30)
+  print(cowplot::plot_grid(plot.title, feat.plot.list, ncol = 1, rel_heights = c(0.1, 1)))
+
+
+  ggsave(feat.plot.path, width=saved.fig.width, height=saved.fig.height)
+
+
+  vln.plot.list <- VlnPlot(object = experiment.aggregate,
+                      features = curr.markers$gene[1:num.markers.to.plot],
+                      pt.size = 0.05)
+
+  # Fix the axis labels and main title sizes for the violin plots
+  for (i in 1:num.markers.to.plot){
+    vln.plot.list[[i]] <- vln.plot.list[[i]] + theme(axis.text.x = element_text(angle=45, hjust=1, size=30),
+                                                       axis.text.y = element_text(size = 30),
+                                                       plot.title = element_text(size=30))
+  }
+  print(cowplot::plot_grid(plot.title, vln.plot.list, ncol = 1, rel_heights = c(0.1, 1)))
+
+
+  ggsave(vln.plot.path, width=saved.fig.width, height=saved.fig.height)
+
+
+}
+
+# these.markers <- markers_all[markers_all$cluster == 6,]
+# VlnPlot(object = experiment.aggregate, features = these.markers$gene[1:6], pt.size = 0.05)
+# num.clusters.list = c(0, 1)
+num.clusters.list <- unique(markers_all$cluster)
+# num.clusters.list
+sapply(num.clusters.list, feat_plots_top_genes)
+```
+
+
+<br/>
+<br/>
+
+Plot a heatmap of genes by cluster for the top 10 marker genes per cluster
+```{r markers_head, warning=FALSE, error=FALSE, message=FALSE, fig.height=10}
+DefaultAssay(experiment.aggregate) <- "SCT"
+top10 <- markers_all_single %>% group_by(cluster) %>% top_n(10, avg_log2FC)
+heatmap.genes.by.cluster <- DoHeatmap(
+    object = experiment.aggregate,
+    features = top10$gene
+)
+    
+heatmap.genes.by.cluster   
+
+save_png_plot(plot = heatmap.genes.by.cluster, file = "heatmap_genes_by_cluster.png")
+```
+
+And last lets save all the objects in our session.
+```{r save_rdata, warning=FALSE, error=FALSE, message=FALSE}
+
+save.for.rdata <- c("experiment.aggregate",
+                    "markers_all",
+                    "markers_all_single",
+                    "top10",
+                    "num.clusters.list")
+
+save(list=save.for.rdata, file=part5.rds.save.path)
+# load(part5.rds.save.path)
+
+to.save.for.report <- c("clusters.to.sample.table",
+                        "num.clusters.list")
+
+num.clusters <- length(unique(markers_all$cluster))
+
+for (i in seq(0, num.clusters - 1)){
+  table.filename <- file.path(marker.gene.dir, paste0("cluster", i, "_marker_genes_", resolution.selection, ".csv"))
+  these.markers <- markers_all[markers_all$cluster == i,]
+  write.csv(x = these.markers, file = table.filename, quote = FALSE)
+}
+
+# to.save.for.report <- c("marker.gene.plots", "num.clusters.list")
+save(list = to.save.for.report, file = part5.file.report.path) 
+```
+
+## Session Information
+```{r session_info, warning=FALSE, error=FALSE, message=FALSE}
+sessionInfo()
+```
