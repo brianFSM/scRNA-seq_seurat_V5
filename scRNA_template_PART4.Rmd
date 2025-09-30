@@ -17,12 +17,6 @@ library(dplyr)
 library(future)
 library(yaml)
 
-if (!require(DoubletFinder)) {
-  install.packages("fields") 
-  remotes::install_github("chris-mcginnis-ucsf/DoubletFinder", 
-                          upgrade = FALSE, 
-                          dependencies = FALSE)
-}
 
 
 ```

@@ -1,21 +1,19 @@
 ---
 project: 
-        analyst-name: "your name" # Also fill this out in 'common.yaml'
-        project-name: "project name" # Also fill this out in 'common.yaml'
-        project-decription: "long string here"
-        organism: "human or mouse"
+        analyst-name: "Brian Wray" # Also fill this out in 'common.yaml'
+        project-name: "scRNA-seq pipeline dev" # Also fill this out in 'common.yaml'
+        project-decription: "Development of full scRNA-seq pipeline for QDSC bioinfo use"
+        organism: "mouse"
         run_cell_cycle: "TRUE" # Cell cycle predictions can't run if you aren't using human or mouse, so you can turn it off here.
         samples:
-                -"sample1"
-                -"sample2"
-                -"sample3"
-                -"etc"
+                -"BM-KO"
+                -"BM-WT"
 
 data: 
         # set to false when importing matrix files (e.g. when running on analytics node)
         import-h5: FALSE
-        parent_directory_path: "path/to/parent/folder" # see README.md for directory structure
-        rds-file-path: "path/where/r/data/is/saved"
+        parent_directory_path: "/Users/brianwray/Desktop/_from_quest/scRNA-seq_test_data" # see README.md for directory structure
+        rds-file-path: "/Users/brianwray/Desktop/_from_quest/scRNA-seq_seurat_V5/data"
 
 analysis:
         run_tests: FALSE

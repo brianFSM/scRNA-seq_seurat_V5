@@ -1,0 +1,22 @@
+% pure LaTeX header (no YAML here)
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
+\usepackage{bookmark}
+
+% allow nice URL/path breaks
+\Urlmuskip=0mu plus 1mu
+\def\UrlBreaks{\do\/\do-\do\_\do.}
+
+% make the PDF open with bookmarks and colored links
+\hypersetup{
+  colorlinks=true,
+  linkcolor=MidnightBlue,
+  citecolor=MidnightBlue,
+  urlcolor=MidnightBlue,
+  pdfpagemode=UseOutlines,
+  pdfstartview=FitH
+}
+\bookmarksetup{open,numbered,depth=3}
+
+% (optional) relax overfull boxes a bit
+\setlength{\emergencystretch}{3em}

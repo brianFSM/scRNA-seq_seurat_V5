@@ -1,21 +1,32 @@
 ---
+title: "scRNA-seq QC Report"
 output:
-  html_document:
-    pandoc_args: './common.yaml'
+  pdf_document:
+    toc: true
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
 params:
   config.args: "./config.yaml"
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+)
+
+source("functions_for_report.R")
+```
+
 # Part 2: Some QA/QC, filtering, normalization, and assigning variable genes
 
-## Load libraries
 ```{r libraries, warning=FALSE,error=FALSE,message=FALSE}
 library(Seurat)
-library(biomaRt)
+# library(biomaRt)
 library(ggplot2)
-library(knitr)
-library(kableExtra)
-library(future)
+# library(knitr)
+# library(kableExtra)
+# library(future)
 library(yaml)
 ```
 
@@ -32,67 +43,71 @@ config.args <- read_yaml(params$config.args)
 r.obj.loc <- config.args$data$`rds-file-path`
 organism <- config.args$project$organism
 
-mito.cutoff = config.args$analysis$part2$mito_cutoff
+################################################################################
+# QC cutoffs
+################################################################################
+
+mito.ceiling = config.args$analysis$part2$mito_ceiling
 RNA.count.floor = config.args$analysis$part2$RNA_count_floor
 RNA.count.ceiling = config.args$analysis$part2$RNA_count_ceiling
 feature.count.floor = config.args$analysis$part2$feature_count_floor
 feature.count.ceiling = config.args$analysis$part2$feature_count_ceiling
-rbc.cutoff = config.args$analysis$part2$rbc_cutoff
-ribo.cutoff = config.args$analysis$part2$ribo_cutoff
+rbc.ceiling = config.args$analysis$part2$rbc_ceiling
+ribo.floor = config.args$analysis$part2$ribo_floor
 
-run_tests <- config.args$analysis$run_tests
 node.type <- config.args$analysis$node_type
 
+
+                filename_seurat_obj_merged: "_2_seurat5_obj_merged.RDS"
+                filename_seurat_obj_integrated: "_3_seurat5_obj_integrated.RDS"
+################################################################################
+# I/O paths
+################################################################################
 part1.suffix <- config.args$analysis$part1$part1_suffix
 part2.suffix <- config.args$analysis$part2$part2_suffix
 
-# Generally I don't expect part1 to be modified, but I'm sure I'll be proven wrong
-# For now don't allow other file suffixes for the part1 output to avoid
-# having to generate it for every downstream mod
-part2.rds.open.file <- config.args$analysis$part2$part2_rds_open_filename
-part2.rds.open.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), part2.rds.open.file )
-part2.rds.open.path <- file.path(r.obj.loc, part2.rds.open.file)
+unfiltered.seurat.obj.file <- config.args$analysis$part2$unfiltered.seurat.obj_filename # Get the absolute path
+unfiltered.seurat.obj.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), unfiltered.seurat.obj.file ) # add the suffix
+unfiltered.seurat.obj.path <- file.path(r.obj.loc, unfiltered.seurat.obj.file) # make the full path
 
-#--------------------------------------------------#
-# Set up the filenames by taking the normal output
-# filename from the config and adding the suffix
-#--------------------------------------------------#
-part2.rds.save.file <- config.args$analysis$part2$part2_rds_save_filename
-part2.rds.save.file <- sub(".RDS", paste0(part2.suffix, ".RDS"), part2.rds.save.file )
-part2.rds.save.path <- file.path(r.obj.loc, part2.rds.save.file)
+merged.seurat.obj.file <- config.args$analysis$part2$merged.seurat.obj.file
+merged.seurat.obj.file <- sub(".RDS", paste0(part2.suffix, ".RDS"), merged.seurat.obj.file )
+merged.seurat.obj.path <- file.path(r.obj.loc, merged.seurat.obj.file)
 
-part2.file.for.report <- config.args$analysis$part2$part2_report_tables_filename
-part2.file.for.report <-sub(".RData", paste0(part2.suffix, ".RData"), part2.file.for.report)
-part2.file.report.path <- file.path(r.obj.loc, part2.file.for.report)
+integrated.seurat.obj.file <- config.args$analysis$part2$integrated.seurat.obj.file
+integrated.seurat.obj.file <- sub(".RDS", paste0(part2.suffix, ".RDS"), integrated.seurat.obj.file )
+integrated.seurat.obj.path <- file.path(r.obj.loc, integrated.seurat.obj.file)
+
+# part2.file.for.report <- config.args$analysis$part2$part2_report_tables_filename
+# part2.file.for.report <-sub(".RData", paste0(part2.suffix, ".RData"), part2.file.for.report)
+# part2.file.report.path <- file.path(r.obj.loc, part2.file.for.report)
+
+QC.tables.file <- config.args$analysis$part1$part1_report_tables_filename
+QC.tables.file <-sub(".RData", paste0(part1.suffix, ".RData"), QC.tables.file)
+QC.tables.path <-file.path(r.obj.loc, QC.tables.file)
 
 ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
 ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
 ```
 
 
-```{r define_save_plots, echo = FALSE}
+## Report and variable details
 
-save_png_plot <- function(plot, filename){
-  save.path <- file.path(ggplot.directory, paste0("part2", part2.suffix, "_", filename))
-  ggsave(save.path, plot)
-}
-
-```
-### This report was generated on `r formatted.date`
+This report was generated on `r formatted.date`
 
 * node.type: `r node.type`
 
-* starting with rds object at `r part2.rds.open.path`
+* starting with rds object at `r unfiltered.seurat.obj.path`
 * saving rds object to `r part2.rds.save.path`
 * saving file for report at `r part2.file.report.path`
 
-* mito cutoff: `r mito.cutoff`
+* mito ceiling: `r mito.ceiling`
 * RNA count floor: `r RNA.count.floor`
 * RNA count ceiling: `r RNA.count.ceiling`
 * Feature count floor: `r feature.count.floor`
 * Feature count ceiling: `r feature.count.ceiling`
-* RBC cutoff: `r rbc.cutoff`
-* Ribosomal cutoff: `r ribo.cutoff`
+* RBC ceiling: `r rbc.ceiling`
+* Ribosomal floor: `r ribo.floor`
 
 
 
@@ -107,77 +122,83 @@ if (node.type == "compute"){
 }
 ```
 
-## Load the Seurat object from part 1
+## 
 
 ```{r load_data, warning=FALSE,error=FALSE,message=FALSE}
-experiment.aggregate <- readRDS(file=part2.rds.open.path)
+seurat5.obj <- readRDS(file=unfiltered.seurat.obj.path)
 set.seed(12345)
 ```
 
 
 <br/>
 
-## Before Filtering
+# QC plots
 
-Ridgeplots before applying filters
+Just as in part 1, but shaded to show the filtering cutoffs
 
-```{r generate_ridgeplot_pre, warning=FALSE,error=FALSE,message=FALSE}
-ridgeplot.prefiltering <- RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito", "percent.rbc", "percent.ribo"), ncol = 2)
-# RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito"), ncol = 2)
+```{r load_QC_data}
+# Same plots as part 1, with a red line showing the cutoffs
+load(QC.tables.path)
 ```
 
-<br/>
+## nCount RNA distribution
 
-## Proposed filtering cutoffs
+```{r shaded_nCount_plot}
+p_nCount <- shaded_vln_boxplot(data = nCount_data,  
+                          x = Sample, 
+                          y = nCount_RNA,
+                          title = "nCount_RNA Distribution per Sample",
+                          floor = RNA.count.floor,
+                          ceiling = RNA.count.ceiling)
 
-Gene Plot, scatter plot of gene expression across cells, (colored by sample), drawing horizontal an verticale lines at proposed filtering cutoffs.
+p_nCount 
+save_png_plot(p_nCount, "nCount_RNA_distribution_shaded.pdf")
+```
+## nFeature distribution
 
-```{r relationships, warning=FALSE,error=FALSE,message=FALSE}
-# Set these cutoffs here and use them in the plots AND in the filtering
+```{r p_nFeature_plot}
 
-nCount.mito.scatter <- FeatureScatter(experiment.aggregate, "nCount_RNA", "percent.mito") + 
-  geom_vline(xintercept = c(RNA.count.floor,RNA.count.ceiling)) + 
-  geom_hline(yintercept = mito.cutoff)
+p_nFeature <- shaded_vln_boxplot(data = nFeature_data,  
+                          x = Sample, 
+                          y = nFeature_RNA,
+                          title = "nFeature_RNA Distribution per Sample",
+                          floor = feature.count.floor,
+                          ceiling = feature.count.ceiling)
+  
 
-nFeature.mito.scatter <- FeatureScatter(experiment.aggregate, "nFeature_RNA", "percent.mito") + 
-  geom_vline(xintercept = c(feature.count.floor, feature.count.ceiling)) + 
-  geom_hline(yintercept = mito.cutoff)
 
-nCount.nFeature.scatter <- FeatureScatter(experiment.aggregate, "nCount_RNA", "nFeature_RNA")  + 
-  geom_vline(xintercept = c(RNA.count.floor,RNA.count.ceiling)) + 
-  geom_hline(yintercept = c(feature.count.floor, feature.count.ceiling))
+p_nFeature
+save_png_plot(p_nFeature, "nFeature_RNA_distribution_shaded.pdf")
+```
 
-ribo.rbc.scatter <- FeatureScatter(experiment.aggregate, "percent.ribo", "percent.rbc")+ 
-  geom_vline(xintercept = ribo.cutoff) + 
-  geom_hline(yintercept = rbc.cutoff)
+## Percent mito distribution
 
-ribo.mito.scatter <- FeatureScatter(experiment.aggregate, "percent.ribo", "percent.mito")+ 
-  geom_vline(xintercept = ribo.cutoff) + 
-  geom_hline(yintercept = mito.cutoff)
+```{r pct_mito_plot}
 
-mito.rbc.scatter <- FeatureScatter(experiment.aggregate, "percent.mito", "percent.rbc")+ 
-  geom_vline(xintercept = mito.cutoff) + 
-  geom_hline(yintercept = rbc.cutoff)
+p_percent_mt <- shaded_vln_boxplot(data = percent_mt_data,  
+                          x = Sample, 
+                          y = percent.mt,
+                          title = "Percent mitochondrial content per Sample",
+                          ceiling = mito.ceiling)
 
-nFeature.rbc.scatter <- FeatureScatter(experiment.aggregate, "nFeature_RNA", "percent.rbc")+ 
-  geom_vline(xintercept = c(feature.count.floor, feature.count.ceiling)) + 
-  geom_hline(yintercept = rbc.cutoff)
 
-nCount.mito.scatter 
-nFeature.mito.scatter 
-nCount.nFeature.scatter 
-ribo.rbc.scatter 
-ribo.mito.scatter 
-mito.rbc.scatter 
-nFeature.rbc.scatter 
+p_percent_mt
+save_png_plot(p_percent_mt, "percent_mt_distribution.pdf")
+```
 
-save_png_plot(plot = nCount.mito.scatter, filename = "nCount_mito.png")
-save_png_plot(plot = nFeature.mito.scatter, filename = "nFeat_mito.png")
-save_png_plot(plot = nCount.nFeature.scatter, filename = "nCount_nFeat.png")
-save_png_plot(plot = ribo.rbc.scatter, filename = "ribo_rbc.png")
-save_png_plot(plot = ribo.mito.scatter, filename = "ribo_mito.png")
-save_png_plot(plot = mito.rbc.scatter, filename = "mito_rbc.png")
-save_png_plot(plot = nFeature.rbc.scatter, filename = "nFeat_rbc.png")
+## Percent RBC distribution
+
+```{r pct_hb_plot}
+
+p_percent_hb <- shaded_vln_boxplot(data = percent_hb_data,  
+                          x = Sample, 
+                          y = percent.hb,
+                          title = "Percent hemoglobin content (RBCs) per Sample",
+                          ceiling = rbc.ceiling)
+
+p_percent_hb
+save_png_plot(p_percent_hb, "percent_hb_distribution_shaded.pdf")
+
 ```
 
 ## Cell filtering stats
@@ -185,54 +206,87 @@ save_png_plot(plot = nFeature.rbc.scatter, filename = "nFeat_rbc.png")
 We use the cutoffs above to filter out cells. 
 
 ```{r apply_filtering, warning=FALSE,error=FALSE,message=FALSE}
-before.table <- table(experiment.aggregate$orig.ident)
+before.table <- table(seurat5.obj$sample_id)
 
-experiment.aggregate <- subset(experiment.aggregate, percent.mito <= mito.cutoff)
-experiment.aggregate <- subset(experiment.aggregate, nCount_RNA >= RNA.count.floor & nCount_RNA <= RNA.count.ceiling)
-experiment.aggregate <- subset(experiment.aggregate, nFeature_RNA >= feature.count.floor & nFeature_RNA <= feature.count.ceiling)
-experiment.aggregate <- subset(experiment.aggregate, percent.rbc >= rbc.cutoff)
-experiment.aggregate <- subset(experiment.aggregate, percent.ribo <= ribo.cutoff)
+seurat5.obj <- subset(seurat5.obj, percent.mt <= mito.ceiling)
+                                 # nCount_RNA >= RNA.count.floor & 
+                                 # nCount_RNA <= RNA.count.ceiling &
+                                 # nFeature_RNA >=feature.count.floor & 
+                                 # nFeature_RNA <= feature.count.ceiling & 
+                                 # percent.hb <= rbc.ceiling)
+# seurat5.obj <- subset(seurat5.obj, nCount_RNA >= RNA.count.floor & nCount_RNA <= RNA.count.ceiling)
+# seurat5.obj <- subset(seurat5.obj, nFeature_RNA >= feature.count.floor & nFeature_RNA <= feature.count.ceiling)
+# seurat5.obj <- subset(seurat5.obj, percent.rbc >= rbc.cutoff)
+# seurat5.obj <- subset(seurat5.obj, percent.ribo <= ribo.cutoff)
 
-after.table <- table(experiment.aggregate$orig.ident)
+after.table <- table(seurat5.obj$sample_id)
 
 combo.table <- rbind(before.table,
                      after.table)
 
-row.names(combo.table) <- c("Num cells before filtering", "Num cells after filtering")
+row.names(combo.table) <- c("# cells before filtering", "# cells after filtering")
 
-pretty.combo.table <- combo.table %>%
-  kable(caption = "Cells present before and after filtering")%>%
-  pack_rows("Filtering results", 1, 2, label_row_css = "background-color: #666; color: #fff;") %>%
-  kable_styling("striped")
-
-pretty.combo.table
+combo.table
 ```
 
-<br/>
+# Analysis without integration
 
-## Filtering comparison 
+SCTransform, PCA and UMAP generation
 
-Ridgeplots before filtering:
-```{r ridgeplot_pre, warning=FALSE,error=FALSE,message=FALSE}
-ridgeplot.prefiltering
-save_png_plot(plot = ridgeplot.prefiltering, 
-              filename = "ridgeplot_prefiltering.png")
+```{r process_merged_pbject}
+
+seurat5.obj <- SCTransform(seurat5.obj)
+seurat5.obj <- RunPCA(seurat5.obj)
+seurat5.obj <- RunUMAP(seurat5.obj, dims = 1:30)
+
+print(paste0("Saving merged object to ", merged.seurat.obj.path))
+saveRDS(seurat5.obj, merged.seurat.obj.path)
+```
+
+## Umap of the Seurat object before integration
+
+```{r merged_obj_umap}
+merged.dimplot <- DimPlot(seurat5.obj, reduction = "umap", group.by = "sample_id")
+
+save_png_plot(merged.dimplot, "umap_merged_seruat_obj.png")
+merged.dimplot
+```
+
+# Integration
+
+```{r integrate_seurat_obj}
+seurat5.obj.integrated <- IntegrateLayers(object = seurat5.obj, 
+                                          method = CCAIntegration, 
+                                          normalization.method = "SCT", 
+                                          verbose = F)
+
+saveRDS(seurat5.obj.integrated)
+
 ```
 
 
-Ridgeplots after filtering
-```{r ridgeplot_post, warning=FALSE,error=FALSE,message=FALSE}
-ridgeplot.postfiltering <- RidgePlot(experiment.aggregate, features=c("nFeature_RNA","nCount_RNA", "percent.mito", "percent.rbc", "percent.ribo"), ncol = 2)
-ridgeplot.postfiltering
+```{r clustering, eval=FALSE}
 
-save_png_plot(plot = ridgeplot.postfiltering, 
-              filename = "ridgeplot_postfiltering.png")
+seurat5.obj <- FindNeighbors(seurat5.obj, reduction = "integrated.dr", dims = 1:30)
+seurat5.obj <- FindClusters(seurat5.obj, resolution = 0.6)
+
+
+
+seurat5.obj <- RunUMAP(seurat5.obj, dims = 1:30, reduction = "integrated.dr")
+DimPlot(seurat5.obj, reduction = "umap", group.by = "sample_id")
+
+# perform differential expression
+seurat5.obj <- PrepSCTFindMarkers(seurat5.obj)
+Idents(seurat5.obj)
+
+# Runs MUCH faster with presto package
+all.markers <- FindAllMarkers(seurat5.obj, verbose = TRUE)
 ```
 
-<br/>
-## Finally, lets save the filtered and normalized data
-```{r save_r, warning=FALSE,error=FALSE,message=FALSE}
-saveRDS(experiment.aggregate, file=part2.rds.save.path)
+
+
+```{r save_r, eval=FALSE}
+saveRDS(seurat5.obj, file=part2.rds.save.path)
 
 to.save.for.report <- c("mito.cutoff", 
                         "RNA.count.floor", 

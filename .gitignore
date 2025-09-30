@@ -7,6 +7,9 @@
 .Rproj*
 .Rapp.history
 
+# Analysis scripts I'm using for reference
+*.R
+
 # Quarto/Rmd junk
 *_cache/
 _cache/
@@ -29,6 +32,7 @@ data/
 *.RDS
 *.rda
 *.RData
+*.pdf
 
 # Logs & temp
 logs/
@@ -37,3 +41,6 @@ tmp/
 
 # charts and graphs
 /figures
+
+# The config I use for testing
+config.yaml

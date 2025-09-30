@@ -1,0 +1,473 @@
+---
+title: "scRNA-seq Filtering, Integration, and Clustering"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+params:
+  config.args: "./config.yaml"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+)
+
+source("functions_for_report.R") # This is the file that holds the R functions used in the RMD file
+```
+
+
+
+```{r libraries, warning=FALSE,error=FALSE,message=FALSE}
+library(Seurat)
+library(ggplot2)
+library(yaml)
+library(cluster)  # For silhouette score calculation
+library(future)  # For parallel processing
+library(future.apply)  
+library(presto) # not required, but makes findAllMarkers run much faster
+library(cowplot) # for arranging marker gene plots in a grid
+```
+
+```{r prepare_inline_variables, echo = FALSE}
+# get the datetime and set it to variable
+todays.date <- Sys.Date()
+formatted.date <- format(todays.date, format="%B %d %Y")
+
+config.args <- read_yaml(params$config.args)
+
+```
+
+```{r user_vals, warning=FALSE,error=FALSE,message=FALSE, echo=FALSE}
+r.obj.loc <- config.args$data$`rds-file-path`
+organism <- config.args$project$organism
+
+################################################################################
+# QC cutoffs
+################################################################################
+
+mito.ceiling = config.args$analysis$part2$mito_ceiling
+RNA.count.floor = config.args$analysis$part2$RNA_count_floor
+RNA.count.ceiling = config.args$analysis$part2$RNA_count_ceiling
+feature.count.floor = config.args$analysis$part2$feature_count_floor
+feature.count.ceiling = config.args$analysis$part2$feature_count_ceiling
+rbc.ceiling = config.args$analysis$part2$rbc_ceiling
+ribo.floor = config.args$analysis$part2$ribo_floor
+
+node.type <- config.args$analysis$node_type
+
+################################################################################
+# I/O paths
+################################################################################
+cfg <- config.args$analysis
+p1  <- cfg$part1
+p2 <- cfg$part2
+
+part1.suffix <- p1$part1_suffix
+part2.suffix <- p2$part2_suffix
+
+unfiltered.seurat.obj.path    <- suffix_path(r.obj.loc, p1$unfiltered_seurat_obj_file,  part1.suffix)
+merged.seurat.obj.path <- suffix_path(r.obj.loc, p2$merged_seurat_obj_file, part2.suffix)
+integrated.seurat.obj.path <- suffix_path(r.obj.loc, p2$integrated_seurat_obj_file, part2.suffix)
+QC.tables.path         <- suffix_path(r.obj.loc, p1$part1_report_tables_filename, part1.suffix)
+ggplot.directory       <- file.path(r.obj.loc, p1$ggplot_dir)
+marker.gene.dir <- suffix_path(r.obj.loc, p2$marker_gene_dir, part2.suffix)
+
+# ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
+# ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
+
+
+  if (!file.exists(ggplot.directory)) {
+ dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
+}
+
+if (!file.exists(marker.gene.dir)) {
+ dir.create(marker.gene.dir, showWarnings = FALSE, recursive = TRUE)
+}
+
+```
+
+
+## Report and variable details
+
+This report was generated on `r formatted.date`
+
+* node.type: `r node.type`
+
+* starting with rds object at  \nolinkurl{`r unfiltered.seurat.obj.path`}
+* saving merged object to  \nolinkurl{`r merged.seurat.obj.path`}
+* saving final clustered, integrated object to  \nolinkurl{`r integrated.seurat.obj.path`}
+
+* mito ceiling: `r mito.ceiling`
+* RNA count floor: `r RNA.count.floor`
+* RNA count ceiling: `r RNA.count.ceiling`
+* Feature count floor: `r feature.count.floor`
+* Feature count ceiling: `r feature.count.ceiling`
+* RBC ceiling: `r rbc.ceiling`
+* Ribosomal floor: `r ribo.floor`
+
+
+
+```{r get_num_cores_available, echo = FALSE}
+if (node.type == "compute"){
+  # If using a compute node, then put this in the submission script:
+  # export MC_CORES=${SLURM_NTASKS}
+  num.cores.available <- as.numeric(Sys.getenv("SLURM_NTASKS"))
+} else {
+  library(parallel)
+  num.cores.available <- detectCores() 
+}
+```
+
+
+```{r load_data, warning=FALSE,error=FALSE,message=FALSE}
+seurat5.obj <- readRDS(file=unfiltered.seurat.obj.path)
+load(QC.tables.path)
+
+set.seed(12345)
+```
+
+
+<br/>
+
+# QC plots
+
+Just as in part 1, but shaded to show the filtering cutoffs
+
+## nCount RNA distribution
+
+```{r shaded_nCount_plot}
+p_nCount <- shaded_vln_boxplot(data = nCount_data,  
+                          x = Sample, 
+                          y = nCount_RNA,
+                          title = "nCount_RNA Distribution per Sample",
+                          floor = RNA.count.floor,
+                          ceiling = RNA.count.ceiling)
+
+p_nCount 
+save_png_plot(p_nCount, "nCount_RNA_distribution_shaded.pdf")
+```
+## nFeature distribution
+
+```{r p_nFeature_plot}
+
+p_nFeature <- shaded_vln_boxplot(data = nFeature_data,  
+                          x = Sample, 
+                          y = nFeature_RNA,
+                          title = "nFeature_RNA Distribution per Sample",
+                          floor = feature.count.floor,
+                          ceiling = feature.count.ceiling)
+  
+
+
+p_nFeature
+save_png_plot(p_nFeature, "nFeature_RNA_distribution_shaded.pdf")
+```
+
+## Percent mito distribution
+
+```{r pct_mito_plot}
+
+p_percent_mt <- shaded_vln_boxplot(data = percent_mt_data,  
+                          x = Sample, 
+                          y = percent.mt,
+                          title = "Percent mitochondrial content per Sample",
+                          ceiling = mito.ceiling)
+
+
+p_percent_mt
+save_png_plot(p_percent_mt, "percent_mt_distribution.pdf")
+```
+
+## Percent RBC distribution
+
+```{r pct_hb_plot}
+
+p_percent_hb <- shaded_vln_boxplot(data = percent_hb_data,  
+                          x = Sample, 
+                          y = percent.hb,
+                          title = "Percent hemoglobin content (RBCs) per Sample",
+                          ceiling = rbc.ceiling)
+
+p_percent_hb
+save_png_plot(p_percent_hb, "percent_hb_distribution_shaded.pdf")
+
+```
+
+## Cell filtering stats
+
+We use the cutoffs above to filter out cells. 
+
+```{r apply_filtering, warning=FALSE,error=FALSE,message=FALSE}
+before.table <- table(seurat5.obj$sample_id)
+
+seurat5.obj <- subset(seurat5.obj, percent.mt <= mito.ceiling &
+                                 nCount_RNA >= RNA.count.floor &
+                                 nCount_RNA <= RNA.count.ceiling &
+                                 nFeature_RNA >=feature.count.floor &
+                                 nFeature_RNA <= feature.count.ceiling &
+                                 percent.hb <= rbc.ceiling)
+# seurat5.obj <- subset(seurat5.obj, nCount_RNA >= RNA.count.floor & nCount_RNA <= RNA.count.ceiling)
+# seurat5.obj <- subset(seurat5.obj, nFeature_RNA >= feature.count.floor & nFeature_RNA <= feature.count.ceiling)
+# seurat5.obj <- subset(seurat5.obj, percent.rbc >= rbc.cutoff)
+# seurat5.obj <- subset(seurat5.obj, percent.ribo <= ribo.cutoff)
+
+after.table <- table(seurat5.obj$sample_id)
+
+combo.table <- rbind(before.table,
+                     after.table)
+
+row.names(combo.table) <- c("Number of cells before filtering", "Number of cells after filtering")
+
+combo.table
+write.csv(combo.table, file.path(r.obj.loc, "filtering_stats_table.csv"), quote=FALSE)
+
+```
+
+# Analysis without integration
+
+SCTransform, PCA and UMAP generation
+
+```{r process_merged_object}
+
+t0 <- Sys.time()
+
+seurat5.obj <- SCTransform(seurat5.obj)
+
+time.len <- difftime(Sys.time(), t0, units = "secs")
+print(paste0("SCTransform took ", time.len, " seconds to run."))
+
+seurat5.obj <- RunPCA(seurat5.obj)
+seurat5.obj <- RunUMAP(seurat5.obj, dims = 1:30)
+
+saveRDS(seurat5.obj, merged.seurat.obj.path)
+print("Saved merged object.")
+```
+
+## Umap of the Seurat object before integration
+
+```{r merged_obj_umap}
+merged.dimplot <- DimPlot(seurat5.obj, reduction = "umap", group.by = "sample_id")
+
+save_png_plot(merged.dimplot, "umap_merged_seruat_obj.png")
+merged.dimplot
+```
+
+# Integration
+
+```{r integrate_seurat_obj}
+integrated.reduction.label <- "integrated.cca"
+
+t0 <- Sys.time()
+seurat5.obj.integrated <- IntegrateLayers(
+  object = seurat5.obj,
+  method = CCAIntegration,
+  normalization.method = "SCT",
+  orig.reduction = "pca",          # tell it what you computed above
+  new.reduction = integrated.reduction.label,
+  verbose = FALSE
+)
+time.len <- difftime(Sys.time(), t0, units = "secs")
+
+print(paste0("IntegrateLayers took ", time.len, " seconds to run."))
+# re-join layers after integration
+seurat5.obj.integrated[["RNA"]] <- JoinLayers(seurat5.obj.integrated[["RNA"]])
+
+seurat5.obj.integrated <- FindNeighbors(seurat5.obj.integrated, reduction = integrated.reduction.label, dims = 1:30)
+
+# # --- post-integration UMAP (note the reduction name) ---
+seurat5.obj.integrated <- RunUMAP(
+  seurat5.obj.integrated, dims = 1:30, reduction = integrated.reduction.label,
+  reduction.name = "umap.postint"
+)
+
+
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path)
+```
+
+## clustering
+```{r clustering}
+# Run FindClusters with multiple resolutions (parallelized)
+resolutions <- seq(0.01, 0.2, 0.01)
+cluster_results <- list()
+silhouette_scores <- numeric(length(resolutions))
+names(silhouette_scores) <- resolutions
+n_clusters <- numeric(length(resolutions))
+names(n_clusters) <- resolutions
+
+# Create a directory to store UMAP plots for each resolution
+cl.plot.path <- file.path(r.obj.loc, "cluster_plots")
+dir.create(cl.plot.path, showWarnings = FALSE)
+
+plan(multisession, workers = 4)  # or whatever
+options(future.globals.maxSize = 8 * 1024^3)  # 8 GiB
+
+  # # Parallelize clustering and evaluation
+results <- future_lapply(seq_along(resolutions), function(i) {
+  res <- resolutions[i]
+
+  # Run clustering
+  # obj <- FindNeighbors(seurat5.obj.integrated, reduction = integ_reduction, dims = dims, verbose = FALSE) 
+  obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
+  # obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
+
+  # Number of clusters
+  n_clust <- length(unique(Idents(obj)))
+
+  # Compute silhouette score
+  pca_embeddings <- Embeddings(obj, reduction = "pca")[, 1:30]
+  cluster_labels <- as.numeric(Idents(obj))
+  sil <- silhouette(cluster_labels, dist(pca_embeddings))
+  sil_score <- if (length(sil) > 0) mean(sil[, "sil_width"]) else NA
+
+  # Generate UMAP plot
+  p <- DimPlot(obj, reduction = "umap", label = TRUE) +
+     ggtitle(sprintf("Resolution: %s | k=%d | Silhouette: %.3f",
+                     res, length(unique(Idents(obj))), sil_score))
+
+  # p <- DimPlot(obj, reduction = "umap", label = TRUE, group.by = paste0("integrated_snn_res.", res)) +
+  #   ggtitle(paste("Resolution:", res, "| Clusters:", n_clust, "| Silhouette:", round(sil_score, 3)))
+  ggsave(filename = file.path(cl.plot.path, paste0("/umap_clusters_res_", res, ".pdf")),
+         plot = p, width = 8, height = 6)
+
+  # Return results
+  list(clusters = Idents(obj), n_clusters = n_clust, silhouette_score = sil_score)
+}, future.seed = TRUE)
+
+# Extract results from parallel computation
+for (i in seq_along(resolutions)) {
+  res <- resolutions[i]
+  cluster_results[[as.character(res)]] <- results[[i]]$clusters
+  n_clusters[i] <- results[[i]]$n_clusters
+  silhouette_scores[i] <- results[[i]]$silhouette_score
+}
+
+# Print clustering metrics
+cat("Clustering Metrics:\n")
+for (i in seq_along(resolutions)) {
+  res <- resolutions[i]
+  cat("Resolution:", res, "| Number of Clusters:", n_clusters[i], "| Silhouette Score:", round(silhouette_scores[i], 3), "\n")
+}
+
+# Plot number of clusters and silhouette scores vs. resolution
+metrics_df <- data.frame(
+  Resolution = resolutions,
+  Number_of_Clusters = n_clusters,
+  Silhouette_Score = silhouette_scores
+)
+
+p_clusters <- ggplot(metrics_df, aes(x = Resolution, y = Number_of_Clusters)) +
+  geom_line() + geom_point() +
+  ggtitle("Number of Clusters vs. Resolution") +
+  theme_minimal()
+p_silhouette <- ggplot(metrics_df, aes(x = Resolution, y = Silhouette_Score)) +
+  geom_line() + geom_point() +
+  ggtitle("Silhouette Score vs. Resolution") +
+  theme_minimal()
+
+ggsave("number_of_clusters_vs_resolution.pdf", plot = p_clusters, width = 8, height = 6)
+ggsave("silhouette_score_vs_resolution.pdf", plot = p_silhouette, width = 8, height = 6)
+
+# Choose the best resolution based on silhouette score
+best_res <- resolutions[which.max(silhouette_scores)]
+cat("Best resolution based on silhouette score:", best_res, "\n")
+
+# Set the final clustering to the best resolution
+seurat5.obj.integrated <- FindClusters(seurat5.obj.integrated, 
+                                       resolution = best_res, 
+                                       verbose = FALSE)
+
+
+cluster.res.prefix <- "SCT_snn_res."
+clustering.resolution <- paste0(cluster.res.prefix, best_res)
+
+# Visualize after integration with the best resolution
+p1_post <- DimPlot(seurat5.obj.integrated, reduction = "umap", group.by = "orig.ident", label = TRUE)
+p2_post <- DimPlot(seurat5.obj.integrated, reduction = "umap", group.by = clustering.resolution, label = TRUE)
+
+ggsave("umap_patient_post_integration.pdf", plot = p1_post, width = 8, height = 6)
+ggsave("umap_condition_post_integration.pdf", plot = p2_post, width = 8, height = 6)
+```
+
+## Umap of the Seurat object after integration, colored by sample
+
+```{r integrated_umap_by_sample}
+integrated.dimplot.by.sample <- DimPlot(seurat5.obj.integrated, 
+                              reduction = "umap.postint", 
+                              group.by = "sample_id")
+
+save_png_plot(integrated.dimplot.by.sample, "integrated_umap_by_sample.png")
+integrated.dimplot.by.sample
+```
+## Umap of the Seurat object after integration, colored by clusters 
+
+```{r integrated_umap_by_cluster}
+integrated.dimplot.by.cluster <- DimPlot(seurat5.obj.integrated, 
+                              reduction = "umap.postint", 
+                              group.by = clustering.resolution)
+
+save_png_plot(integrated.dimplot.by.cluster, "integrated_umap_by_cluster.png")
+integrated.dimplot.by.cluster
+```
+
+## UMAP of PCA
+
+```{r pca_plots}
+
+pca_post <- DimPlot(seurat5.obj.integrated, reduction = "pca", group.by = "sample_id", label = TRUE)
+
+
+pca_post
+save_png_plot(pca_post, "pca_integrated.png")
+
+```
+
+# Find Markers
+
+prepSCTFindMarkers and FindAllMarkers
+
+```{r find_markers}
+
+# perform differential expression
+seurat5.obj.integrated <- PrepSCTFindMarkers(seurat5.obj.integrated)
+# Idents(seurat5.obj.integrated)
+
+# Runs MUCH faster with presto package installed
+all.markers <- FindAllMarkers(seurat5.obj.integrated, verbose = TRUE)
+```
+
+
+## Plot markers
+
+```{r gene_feature, warning=FALSE, error=FALSE, message=FALSE, eval=TRUE, fig.width = 25, fig.height = 20}
+# these.markers <- markers_all[markers_all$cluster == 6,]
+# VlnPlot(object = experiment.aggregate, features = these.markers$gene[1:6], pt.size = 0.05)
+# num.clusters.list = c(0, 1)
+num.clusters.list <- unique(all.markers$cluster)
+# num.clusters.list
+invisible(lapply(num.clusters.list, 
+                 feat_plots_top_genes, 
+                 seurat.obj = seurat5.obj.integrated,
+                 marker.genes.df = all.markers,
+                 ggplot.dir = ggplot.directory, 
+                 filename.suffix = part2.suffix))
+
+# sapply(num.clusters.list, feat_plots_top_genes)
+```
+
+
+```{r save_r, eval=FALSE}
+saveRDS(seurat5.obj, file=part2.rds.save.path)
+
+# to.save.for.report <-   "pretty.combo.table"
+
+save(list = to.save.for.report, file=part2.file.report.path)
+```
+
+## Session Information
+```{r session_info}
+sessionInfo()
+```
+

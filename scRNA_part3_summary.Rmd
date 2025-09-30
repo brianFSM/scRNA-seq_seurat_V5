@@ -1,0 +1,257 @@
+---
+title: "scRNA-seq Summary Report"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+    includes:
+      in_header: common-pdf.tex
+params:
+  config.args: "./config.yaml"
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+)
+# source helpers that sit beside this Rmd
+# source("functions_for_report.R")
+```
+
+
+
+```{r import_libraries}
+# must have Seurat. amd bookdown, yaml, ggplot2, and tinytex
+# suppressMessages(require(Seurat))
+# suppressMessages(require(ggplot2))
+suppressMessages(require(yaml))
+# suppressMessages(require(tinytex))
+```
+
+
+```{r user_vars}
+
+# get the datetime and set it to variable for inline printing
+todays.date <- Sys.Date()
+formatted.date <- format(todays.date, format="%B %d %Y")
+
+# Import the config file
+config.args <- read_yaml(params$config.args)
+
+run_metrics_tables=TRUE
+metrics.table.string <- config.args$analysis$part1$generate_metrics_tables
+
+if (metrics.table.string == "FALSE"){
+  run_metrics_tables=FALSE
+}
+
+
+################################################################################
+# set project variables
+################################################################################
+analyst.name <- config.args$project$`analyst-name`
+formatted.samples <- config.args$project$samples # Sanitized below
+experiment.name = config.args$project$`project-name` 
+project.description <- config.args$project$`project-decription`
+dataset.path <- config.args$data$parent_directory_path
+import.h5 <- config.args$data$`import-h5` # set to false if you want to import the matrix files
+organism = config.args$project$organism
+
+
+################################################################################
+# Set output directory paths
+################################################################################
+
+r.obj.loc <- config.args$data$`rds-file-path` # Output folder
+
+# When trying different parameters in the analysis you can create
+# alternate output files with this 'suffix' argument in the config
+part1.suffix <- config.args$analysis$part1$part1_suffix
+unfiltered.seurat.obj.file <- config.args$analysis$part1$unfiltered_seurat_obj_file
+unfiltered.seurat.obj.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), unfiltered.seurat.obj.file )
+unfiltered.seurat.obj.path <- file.path(r.obj.loc, unfiltered.seurat.obj.file)
+QC.tables.file <- config.args$analysis$part1$part1_report_tables_filename
+QC.tables.file <-sub(".RData", paste0(part1.suffix, ".RData"), QC.tables.file)
+QC.tables.path <-file.path(r.obj.loc, QC.tables.file)
+
+ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
+ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
+
+# create ggplot folder if it doesn't exist already
+if (!file.exists(ggplot.directory)) {
+ dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
+}
+
+# create rds folder if it doesn't exist already
+if (!file.exists(r.obj.loc)) {
+
+ dir.create(r.obj.loc, showWarnings = FALSE, recursive = TRUE)
+
+}
+
+
+################################################################################
+# Sanitize sample names
+################################################################################
+
+# setup the sample names for printing in the inline report
+formatted.samples <- gsub("\"", "", formatted.samples)
+formatted.samples <- gsub("\ ", "  \n ", formatted.samples)
+
+# These two replace the first dash in the file names, which comes from the 
+# formatting of the config file, with '*' for the rmd report
+formatted.samples <- gsub("\ -", " * ", formatted.samples)
+formatted.samples <- gsub("^-", " * ", formatted.samples)
+
+formatted.samples <- paste0(formatted.samples, " <br /> ")
+
+# generate list of ids for use in importing data
+ids <- config.args$project$samples # sample names, need to match the folders containing the h5 files
+seurat.sample.names <- gsub("-", "_", ids)
+
+# Use sub instead of gsub in the first call. gsub replaces all, while sub 
+# only replaces the first instance. The first dash is just there as formatting
+# in the config file. This allows for names with dashes in them.
+ids <- sub("^-", "", ids)
+ids <- gsub("\ -", "\ ", ids)
+ids <- gsub("\"", "", ids)
+ids <- strsplit(ids, "[[:space:]]")
+ids <- unlist(ids)
+
+
+
+################################################################################
+# Set gene subset markers (mito genes, ribo genes, etc)
+################################################################################
+
+if (organism == "human"){
+  mt.marker = "^MT-"
+  hb.marker = "^HB[^(P)]"
+  ribo.marker = "^RP[SL]"
+  xist.gene = "XIST"
+  genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/hg38/refdata-gex-GRCh38-2020-A/genes/genes.gtf"
+} else if (organism == "mouse") {
+  mt.marker = "^mt-"
+  hb.marker = "^Hb[^(p)]"
+  ribo.marker = "^Rp[sl]" 
+  genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/mm10/refdata-gex-mm10-2020-A/genes/genes.gtf"
+  xist.gene = "Xist"
+} else {
+  mt.marker = "NONE"
+  hb.marker = "NONE"
+  ribo.marker = "NONE"
+  xist.gene = "NONE"
+}
+```
+
+
+## Report and variable details
+
+This summary report was generated on `r formatted.date`
+
+* organism: `r organism`
+
+## Project Name
+
+`r experiment.name`
+
+## Project Description:
+
+`r project.description`
+
+## Sample Names
+
+`r formatted.samples `
+
+
+# Part 1: Sequencing metrics
+
+For more insight on what the different metrics presented here actually mean, see this article on the 10x website: https://www.10xgenomics.com/analysis-guides/quality-assessment-using-the-cell-ranger-web-summary
+
+<br/>
+<br/>
+
+
+```{r read_metrics, results='asis', eval=run_metrics_tables}
+
+# Import the metrics summaries
+d10x.metrics <- lapply(ids, function(sample.name){
+  print(sample.name)
+  metrics.path.cleaned <- file.path(dataset.path,sample.name,"metrics_summary.csv")
+  metrics.path.raw <- file.path(dataset.path, sample.name, "outs/metrics_summary.csv") 
+  tryCatch( 
+    {  
+      if(file.exists(metrics.path.cleaned)){     
+        metrics <- read.csv(metrics.path.cleaned, colClasses = "character")  
+        } else if (file.exists(metrics.path.raw)) { 
+          metrics <- read.csv(metrics.path.raw, colClasses = "character")  
+        } 
+      }, 
+    error=function(cond) { 
+      message(paste0("Error loading the sample ", sample.name)) 
+      message("Here's the original error message:")  
+      }
+    )
+})
+
+# Make them a data.frame
+experiment.metrics <- do.call("rbind", d10x.metrics)
+rownames(experiment.metrics) <- ids
+df <- if (inherits(experiment.metrics, "data.frame")) {
+  experiment.metrics
+} else {
+  as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE)
+}
+
+
+# Keep only the desired metrics (columns)
+keep <- c("Estimated.Number.of.Cells",
+          "Mean.Reads.per.Cell",
+          "Median.Genes.per.Cell",
+          "Valid.Barcodes")
+df_sub <- df[, keep, drop = FALSE]
+
+# Prettify metric names: "Estimated.Number.of.Cells" -> "Estimated number of cells"
+pretty_names <- function(x) {
+  s <- gsub("\\.", " ", x)        # dots -> spaces
+  s <- tolower(s)                 # sentence case
+  substr(s, 1, 1) <- toupper(substr(s, 1, 1))
+  s
+}
+colnames(df_sub) <- pretty_names(colnames(df_sub))
+
+# Transpose so rows = metrics, cols = samples
+qc.table <- t(df_sub)
+# carry metric names into a first column instead of rownames
+qc.table <- as.data.frame(qc.table, stringsAsFactors = FALSE)
+qc.table$metric <- rownames(qc.table)
+row.names(qc.table) <- NULL
+# reorder so metric column is first
+qc.table <- qc.table[, c(ncol(qc.table), 1:(ncol(qc.table)-1))]
+
+# Format as a table for pdf
+x <- qc.table                    # your table: first col = Metric, others = samples
+x[] <- lapply(x, function(v) gsub("%","\\%", v, fixed=TRUE))  # escape % for LaTeX
+
+cat(
+  "\\begin{tabular}{l", paste(rep("r", ncol(x)-1), collapse=""), "}\n\\hline\n",
+  paste(names(x), collapse=" & "), " \\\\ \\hline\n",
+  paste(apply(x, 1, function(r) paste(r, collapse=" & ")), collapse=" \\\\\n"),
+  " \\\\ \\hline\n\\end{tabular}\n",
+  sep = ""
+)
+```
+
+
+
+
+
+## Session Information
+```{r sessioinfo}
+sessionInfo()
+```
+
