@@ -1,0 +1,134 @@
+---
+title: "scRNA-seq Summary Report"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+    includes:
+      in_header: common-pdf.tex
+params:
+  config.args: "./config.yaml"
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE, fig.align='center', out.width='\\linewidth'
+)
+# source helpers that sit beside this Rmd
+source("functions_for_report.R")
+```
+
+
+
+```{r import_libraries}
+# must have Seurat. amd bookdown, yaml, ggplot2, and tinytex
+# suppressMessages(require(Seurat))
+# suppressMessages(require(ggplot2))
+if (!suppressMessages(require(yaml))) stop("yaml is required")
+if (!suppressMessages(require(scales))) stop("scales is required")
+if (!suppressMessages(require(kableExtra))) stop("kableExtra is required")
+if (!suppressMessages(require(dplyr))) stop("dplyr is required")
+if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
+
+# Only loading this so that it shows up in the sessionInfo part of the report
+if (!suppressMessages(require(seurat))) stop("seurat is required") 
+```
+
+
+```{r user_vals, eval=TRUE}
+cfg <- config.args
+cfg.analysis <- cfg$analysis
+
+p1  <- cfg.analysis$part1
+p2 <- cfg.analysis$part2
+
+r.obj.loc <- cfg$data$`rds-file-path`
+organism <- cfg$project$organism
+
+################################################################################
+# QC cutoffs
+################################################################################
+
+mito.ceiling = p2$mito_ceiling
+RNA.count.floor = p2$RNA_count_floor
+RNA.count.ceiling = p2$RNA_count_ceiling
+feature.count.floor = p2$feature_count_floor
+feature.count.ceiling = p2$feature_count_ceiling
+rbc.ceiling = p2$rbc_ceiling
+ribo.floor = p2$ribo_floor
+
+node.type <- cfg.analysis$node_type
+
+################################################################################
+# I/O paths
+################################################################################
+part1.suffix <- p1$part1_suffix
+part2.suffix <- p2$part2_suffix
+
+integrated.seurat.obj.path <- suffix_path(r.obj.loc, p2$integrated_seurat_obj_file, part2.suffix)
+QC.tables.path         <- suffix_path(r.obj.loc, p1$part1_report_tables_filename, part1.suffix)
+ggplot.directory       <- file.path(r.obj.loc, p1$ggplot_dir)
+marker.gene.dir <- suffix_path(r.obj.loc, p2$marker_gene_dir, part2.suffix)
+
+  if (!file.exists(ggplot.directory)) {
+ dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
+}
+
+if (!file.exists(marker.gene.dir)) {
+ dir.create(marker.gene.dir, showWarnings = FALSE, recursive = TRUE)
+}
+
+
+```
+
+
+```{r load_obj}
+seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
+
+```
+
+## Report and variable details
+
+This summary report was generated on `r formatted.date`
+
+* organism: `r organism`
+
+## Project Name
+
+`r experiment.name`
+
+## Project Description:
+
+`r project.description`
+
+## Sample Names
+
+`r formatted.samples `
+
+
+```{r assign_group_labels}
+# Example
+# obj$group <- NA_character_
+# obj$group[grepl("OA$", obj$sample_id)] <- "OA"
+# obj$group[grepl("VE$", obj$sample_id)] <- "VE"
+
+seurat5.obj.integrated$sex <- "M"
+seurat5.obj.integrated$sex[grepl("_F_", seurat5.obj.integrated$sample_id)] <- "F"
+```
+
+```{r find_markers}
+Idents(seurat5.obj.integrated) <- "sex"
+
+sex.markers <- 
+
+```
+
+## Session Information
+```{r sessioinfo}
+sessionInfo()
+```
+

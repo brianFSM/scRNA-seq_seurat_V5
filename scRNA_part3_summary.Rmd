@@ -16,10 +16,10 @@ params:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE, fig.align='center', out.width='\\linewidth'
 )
 # source helpers that sit beside this Rmd
-# source("functions_for_report.R")
+source("functions_for_report.R")
 ```
 
 
@@ -28,8 +28,14 @@ knitr::opts_chunk$set(
 # must have Seurat. amd bookdown, yaml, ggplot2, and tinytex
 # suppressMessages(require(Seurat))
 # suppressMessages(require(ggplot2))
-suppressMessages(require(yaml))
-# suppressMessages(require(tinytex))
+if (!suppressMessages(require(yaml))) stop("yaml is required")
+if (!suppressMessages(require(scales))) stop("scales is required")
+if (!suppressMessages(require(kableExtra))) stop("kableExtra is required")
+if (!suppressMessages(require(dplyr))) stop("dplyr is required")
+if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
+
+# Only loading this so that it shows up in the sessionInfo part of the report
+if (!suppressMessages(require(seurat))) stop("seurat is required") 
 ```
 
 
@@ -60,6 +66,7 @@ project.description <- config.args$project$`project-decription`
 dataset.path <- config.args$data$parent_directory_path
 import.h5 <- config.args$data$`import-h5` # set to false if you want to import the matrix files
 organism = config.args$project$organism
+num.clusters <- config.args$analysis$part2$num_clusters
 
 
 ################################################################################
@@ -71,9 +78,11 @@ r.obj.loc <- config.args$data$`rds-file-path` # Output folder
 # When trying different parameters in the analysis you can create
 # alternate output files with this 'suffix' argument in the config
 part1.suffix <- config.args$analysis$part1$part1_suffix
+
 unfiltered.seurat.obj.file <- config.args$analysis$part1$unfiltered_seurat_obj_file
 unfiltered.seurat.obj.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), unfiltered.seurat.obj.file )
 unfiltered.seurat.obj.path <- file.path(r.obj.loc, unfiltered.seurat.obj.file)
+
 QC.tables.file <- config.args$analysis$part1$part1_report_tables_filename
 QC.tables.file <-sub(".RData", paste0(part1.suffix, ".RData"), QC.tables.file)
 QC.tables.path <-file.path(r.obj.loc, QC.tables.file)
@@ -94,58 +103,7 @@ if (!file.exists(r.obj.loc)) {
 }
 
 
-################################################################################
-# Sanitize sample names
-################################################################################
-
-# setup the sample names for printing in the inline report
-formatted.samples <- gsub("\"", "", formatted.samples)
-formatted.samples <- gsub("\ ", "  \n ", formatted.samples)
-
-# These two replace the first dash in the file names, which comes from the 
-# formatting of the config file, with '*' for the rmd report
-formatted.samples <- gsub("\ -", " * ", formatted.samples)
-formatted.samples <- gsub("^-", " * ", formatted.samples)
-
-formatted.samples <- paste0(formatted.samples, " <br /> ")
-
-# generate list of ids for use in importing data
-ids <- config.args$project$samples # sample names, need to match the folders containing the h5 files
-seurat.sample.names <- gsub("-", "_", ids)
-
-# Use sub instead of gsub in the first call. gsub replaces all, while sub 
-# only replaces the first instance. The first dash is just there as formatting
-# in the config file. This allows for names with dashes in them.
-ids <- sub("^-", "", ids)
-ids <- gsub("\ -", "\ ", ids)
-ids <- gsub("\"", "", ids)
-ids <- strsplit(ids, "[[:space:]]")
-ids <- unlist(ids)
-
-
-
-################################################################################
-# Set gene subset markers (mito genes, ribo genes, etc)
-################################################################################
-
-if (organism == "human"){
-  mt.marker = "^MT-"
-  hb.marker = "^HB[^(P)]"
-  ribo.marker = "^RP[SL]"
-  xist.gene = "XIST"
-  genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/hg38/refdata-gex-GRCh38-2020-A/genes/genes.gtf"
-} else if (organism == "mouse") {
-  mt.marker = "^mt-"
-  hb.marker = "^Hb[^(p)]"
-  ribo.marker = "^Rp[sl]" 
-  genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/mm10/refdata-gex-mm10-2020-A/genes/genes.gtf"
-  xist.gene = "Xist"
-} else {
-  mt.marker = "NONE"
-  hb.marker = "NONE"
-  ribo.marker = "NONE"
-  xist.gene = "NONE"
-}
+ids <- sanitize_sample_names(formatted.samples)
 ```
 
 
@@ -168,86 +126,241 @@ This summary report was generated on `r formatted.date`
 `r formatted.samples `
 
 
-# Part 1: Sequencing metrics
+# Part 1: QC
+
+## Sequencing Metrics
 
 For more insight on what the different metrics presented here actually mean, see this article on the 10x website: https://www.10xgenomics.com/analysis-guides/quality-assessment-using-the-cell-ranger-web-summary
 
 <br/>
 <br/>
 
+```{r prep_qc_table, eval=run_metrics_tables, message=FALSE, warning=FALSE}
+# --- Import the metrics summaries (quiet) ---
+qc.table <- make_qc_table(ids)
+render_formatted_table(qc.table)
+```
 
-```{r read_metrics, results='asis', eval=run_metrics_tables}
+## scRNA-seq QC
 
-# Import the metrics summaries
-d10x.metrics <- lapply(ids, function(sample.name){
-  print(sample.name)
-  metrics.path.cleaned <- file.path(dataset.path,sample.name,"metrics_summary.csv")
-  metrics.path.raw <- file.path(dataset.path, sample.name, "outs/metrics_summary.csv") 
-  tryCatch( 
-    {  
-      if(file.exists(metrics.path.cleaned)){     
-        metrics <- read.csv(metrics.path.cleaned, colClasses = "character")  
-        } else if (file.exists(metrics.path.raw)) { 
-          metrics <- read.csv(metrics.path.raw, colClasses = "character")  
-        } 
-      }, 
-    error=function(cond) { 
-      message(paste0("Error loading the sample ", sample.name)) 
-      message("Here's the original error message:")  
-      }
-    )
-})
+## Pre-filter plots
 
-# Make them a data.frame
-experiment.metrics <- do.call("rbind", d10x.metrics)
-rownames(experiment.metrics) <- ids
-df <- if (inherits(experiment.metrics, "data.frame")) {
-  experiment.metrics
-} else {
-  as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE)
-}
+These plots show select metrics of the raw data. Red-shaded areas represent what
+will be filtered out before downstream analysis
 
+### Number of reads per cell raw
 
-# Keep only the desired metrics (columns)
-keep <- c("Estimated.Number.of.Cells",
-          "Mean.Reads.per.Cell",
-          "Median.Genes.per.Cell",
-          "Valid.Barcodes")
-df_sub <- df[, keep, drop = FALSE]
+```{r plot_nCount_shaded }
+nCount.shaded.path <- file.path(ggplot.directory, "nCount_RNA_shaded_vln.png")
 
-# Prettify metric names: "Estimated.Number.of.Cells" -> "Estimated number of cells"
-pretty_names <- function(x) {
-  s <- gsub("\\.", " ", x)        # dots -> spaces
-  s <- tolower(s)                 # sentence case
-  substr(s, 1, 1) <- toupper(substr(s, 1, 1))
-  s
-}
-colnames(df_sub) <- pretty_names(colnames(df_sub))
-
-# Transpose so rows = metrics, cols = samples
-qc.table <- t(df_sub)
-# carry metric names into a first column instead of rownames
-qc.table <- as.data.frame(qc.table, stringsAsFactors = FALSE)
-qc.table$metric <- rownames(qc.table)
-row.names(qc.table) <- NULL
-# reorder so metric column is first
-qc.table <- qc.table[, c(ncol(qc.table), 1:(ncol(qc.table)-1))]
-
-# Format as a table for pdf
-x <- qc.table                    # your table: first col = Metric, others = samples
-x[] <- lapply(x, function(v) gsub("%","\\%", v, fixed=TRUE))  # escape % for LaTeX
-
-cat(
-  "\\begin{tabular}{l", paste(rep("r", ncol(x)-1), collapse=""), "}\n\\hline\n",
-  paste(names(x), collapse=" & "), " \\\\ \\hline\n",
-  paste(apply(x, 1, function(r) paste(r, collapse=" & ")), collapse=" \\\\\n"),
-  " \\\\ \\hline\n\\end{tabular}\n",
-  sep = ""
-)
+knitr::include_graphics(nCount.shaded.path)
 ```
 
 
+### Number of genes per cell raw 
 
+```{r p_nFeature_plot}
+
+nFeat.shaded.path <- file.path(ggplot.directory,  "nFeature_RNA_shaded_vln.png")
+
+knitr::include_graphics(nFeat.shaded.path)
+```
+
+### Percent mitochondrial expression raw
+
+```{r pct_mito_plot}
+pct.mito.shaded.path <- file.path(ggplot.directory,  "percent_mt_shaded_vln.png")
+
+knitr::include_graphics(pct.mito.shaded.path)
+```
+
+### Percent RBC expression raw
+
+```{r pct_hb_plot}
+
+pct.rbc.shaded.path <- file.path(ggplot.directory,  "percent_hb_shaded_vln.png")
+
+knitr::include_graphics(pct.rbc.shaded.path)
+
+```
+### Percent ribo gene expression raw
+
+```{r pct_ribo_plot}
+
+pct.ribo.shaded.path <- file.path(ggplot.directory,  "percent_ribo_shaded_vln.png")
+
+knitr::include_graphics(pct.ribo.shaded.path)
+
+```
+
+## Post-filtering plots
+
+### Distribution of the number of reads, after filter
+
+```{r p_nCount_filt}
+nCount.filt.path <- file.path(ggplot.directory, "nCount_RNA_filt.png")
+
+knitr::include_graphics(nCount.filt.path)
+
+```
+### Number of genes per cell after filtering 
+
+```{r p_nFeature_filt_plot}
+
+nFeat.filt.path <- file.path(ggplot.directory,  "nFeature_RNA_filt.png")
+
+knitr::include_graphics(nFeat.filt.path)
+```
+
+### Percent mitochondrial expression after filtering
+
+```{r pct_mito_filt_plot}
+pct.mito.filt.path <- file.path(ggplot.directory,  "percent_mt_filt.png")
+
+knitr::include_graphics(pct.mito.filt.path)
+```
+
+### Percent RBC expression after filtering
+
+```{r pct_hb_filt_plot}
+
+pct.rbc.filt.path <- file.path(ggplot.directory,  "percent_hb_filtered.png")
+
+knitr::include_graphics(pct.rbc.filt.path)
+
+```
+
+### Percent ribo gene expression after filtering
+
+```{r pct_ribo_filt_plot}
+
+pct.ribo.filt.path <- file.path(ggplot.directory,  "percent_ribo_filtered.png")
+
+knitr::include_graphics(pct.ribo.filt.path)
+
+```
+
+## Percent Y-chr genes distribution 
+
+```{r pct_y_filt}
+
+pct.y.filt.path <- file.path(ggplot.directory,  "percent_y_filtered.png")
+
+knitr::include_graphics(pct.y.filt.path)
+
+```
+
+## Filtering results
+
+Here is a table showing the number of cells before applying the filters described above,
+and then the number of cells remaining after filtering. 
+
+```{r filtering_res_table}
+
+
+
+
+```
+
+# Part 2: Integration, clustering, and differential expression
+
+## Pre-integration UMAP
+
+```{r pre-int_umap}
+merged.umap.path <- file.path(ggplot.directory, "umap_merged_seruat_obj.png")
+
+knitr::include_graphics(merged.umap.path)
+```
+
+## Post-integration UMAP
+
+We integrate all of the samples together into a single object for comparison
+of cell types across samples. Go [here](https://satijalab.org/seurat/articles/integration_introduction.html) to read more about single-cell integration. 
+
+### Post-integration UMAP by sample
+
+```{r post-int_umap}
+integrated.umap.path <- file.path(ggplot.directory, "umap_sample_post_integration.png")
+
+knitr::include_graphics(integrated.umap.path)
+```
+
+
+## Clustering
+
+To pick a clustering resolution, we look at the silhouette score, which measures 
+how well each cell fits within its assigned cluster compared to neighboring 
+clusters. A higher score means cells are more tightly grouped and better 
+separated from other clusters, so the overall structure is cleaner. It’s not a 
+perfect measure (i.e. sometimes biological differences don’t map neatly onto what the 
+score sees) but it gives us an objective starting point when we don’t already 
+know what to expect in the data. The “best” resolution is usually flexible; a few 
+neighboring values often give very similar results, and interpretation still 
+depends on marker genes and biological context.
+
+In other words, this clustering is an educated guess, but it can be adjusted (clusters
+can merge, or be split, or we can use a different resolution to generate more or
+fewer clusters, although the overall shape of the UMAPs won't change)
+
+
+### Clusters by resolution
+
+```{r num_clusters_by_res}
+clusters.by.res.path <- file.path(ggplot.directory, "number_of_clusters_vs_resolution.png")
+
+knitr::include_graphics(clusters.by.res.path)
+```
+
+
+### Silhouette score by resolution
+
+```{r silhouette_by_res}
+sil.score.res.path <- file.path(ggplot.directory, "silhouette_score_vs_resolution.png")
+
+knitr::include_graphics(sil.score.res.path)
+```
+
+
+### Post-integration UMAP by cluster
+
+```{r clusters_by_res}
+cluster.umap.path <- file.path(ggplot.directory, "umap_condition_post_integration.png")
+
+knitr::include_graphics(cluster.umap.path)
+```
+
+### Marker genes
+
+For each cluster, which genes are differentially expressed in that 
+cluster compared to all other clusters combined?
+
+```{r gene_feature, fig.width = 25, fig.height = 20}
+figure.list <- list()
+num.clusters.list <- 0:num.clusters
+assay.used <- "SCT"
+
+# Note that knitr::include_graphics doesn't work in a loop. Instead, I'll make a list of lists of filenames
+figure.list <- sapply(num.clusters.list, function(cluster.num){
+
+  feat.plot.path <- file.path(ggplot.directory, 
+                              paste0("clustering_", 
+                                     "_marker_gene_featPlot_cl_", 
+                                     cluster.num, 
+                                     "_", assay.used, ".png"))
+  
+  vln.plot.path <- file.path(ggplot.directory, 
+                             paste0("clustering_", 
+                                    "_marker_gene_vlnPlot_cl_", 
+                                    cluster.num, 
+                                    "_", assay.used, ".png"))
+  
+  figure.list <- append(figure.list, feat.plot.path)
+  figure.list <- append(figure.list, vln.plot.path)
+
+})
+
+knitr::include_graphics(unlist(figure.list))
+```
 
 
 ## Session Information

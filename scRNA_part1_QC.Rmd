@@ -1,13 +1,13 @@
 ---
 title: "scRNA-seq QC Report"
 output:
-  pdf_document:
+  png_document:
     toc: true
     number_sections: true
     fig_caption: true
     latex_engine: xelatex
     includes:
-      in_header: common-pdf.tex
+      in_header: common-png.tex
 params:
   config.args: "./config.yaml"
 ---
@@ -20,7 +20,7 @@ params:
 # tinytex::is_tinytex()        # should return TRUE
 
 knitr::opts_chunk$set(
-  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+  echo = FALSE, warning=FALSE,error=FALSE, message=FALSE
 )
 
 # source helpers that sit beside this Rmd
@@ -29,16 +29,19 @@ source("functions_for_report.R")
 
 
 
-```{r import_libraries}
-# must have Seurat. amd bookdown, yaml, ggplot2, and tinytex
-suppressMessages(require(Seurat))
-suppressMessages(require(ggplot2))
-suppressMessages(require(yaml))
-# suppressMessages(require(tinytex))
+```{r import_libraries, eval=TRUE}
+if (!suppressMessages(require(Seurat))) stop("Seurat is required")
+if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
+if (!suppressMessages(require(yaml))) stop("yaml is required")
+if (!suppressMessages(require(knitr))) stop("knitr is required")
+if (!suppressMessages(require(kableExtra))) stop("kableExtra is required")
+if (!suppressMessages(require(dplyr))) stop("dplyr is required")
+if (!suppressMessages(require(scales))) stop("scales is required")
+
 ```
 
 
-```{r user_vars}
+```{r user_vars, eval=TRUE}
 
 # get the datetime and set it to variable for inline printing
 todays.date <- Sys.Date()
@@ -48,6 +51,8 @@ formatted.date <- format(todays.date, format="%B %d %Y")
 config.args <- read_yaml(params$config.args)
 
 run_metrics_tables=TRUE
+is_tenx=TRUE
+
 metrics.table.string <- config.args$analysis$part1$generate_metrics_tables
 
 if (metrics.table.string == "FALSE"){
@@ -76,8 +81,8 @@ r.obj.loc <- config.args$data$`rds-file-path` # Output folder
 # When trying different parameters in the analysis you can create
 # alternate output files with this 'suffix' argument in the config
 part1.suffix <- config.args$analysis$part1$part1_suffix
-unfiltered.seurat.obj.file <- config.args$analysis$part1$unfiltered_seurat_obj_file
-unfiltered.seurat.obj.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), unfiltered.seurat.obj.file )
+unfiltered.seurat.obj.file <- config.args$analysis$part1$part1_rds_save_filename
+unfiltered.seurat.obj.file <- sub(".RDS", paste0(part1.suffix, ".RDS"), unfiltered.seurat.obj.file)
 unfiltered.seurat.obj.path <- file.path(r.obj.loc, unfiltered.seurat.obj.file)
 QC.tables.file <- config.args$analysis$part1$part1_report_tables_filename
 QC.tables.file <-sub(".RData", paste0(part1.suffix, ".RData"), QC.tables.file)
@@ -99,35 +104,6 @@ if (!file.exists(r.obj.loc)) {
 }
 
 
-################################################################################
-# Sanitize sample names
-################################################################################
-
-# setup the sample names for printing in the inline report
-formatted.samples <- gsub("\"", "", formatted.samples)
-formatted.samples <- gsub("\ ", "  \n ", formatted.samples)
-
-# These two replace the first dash in the file names, which comes from the 
-# formatting of the config file, with '*' for the rmd report
-formatted.samples <- gsub("\ -", " * ", formatted.samples)
-formatted.samples <- gsub("^-", " * ", formatted.samples)
-
-formatted.samples <- paste0(formatted.samples, " <br /> ")
-
-# generate list of ids for use in importing data
-ids <- config.args$project$samples # sample names, need to match the folders containing the h5 files
-seurat.sample.names <- gsub("-", "_", ids)
-
-# Use sub instead of gsub in the first call. gsub replaces all, while sub 
-# only replaces the first instance. The first dash is just there as formatting
-# in the config file. This allows for names with dashes in them.
-ids <- sub("^-", "", ids)
-ids <- gsub("\ -", "\ ", ids)
-ids <- gsub("\"", "", ids)
-ids <- strsplit(ids, "[[:space:]]")
-ids <- unlist(ids)
-
-
 
 ################################################################################
 # Set gene subset markers (mito genes, ribo genes, etc)
@@ -138,11 +114,13 @@ if (organism == "human"){
   hb.marker = "^HB[^(P)]"
   ribo.marker = "^RP[SL]"
   xist.gene = "XIST"
+  y.genes <- readLines("y_genes_hg38_symbols.txt")
   genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/hg38/refdata-gex-GRCh38-2020-A/genes/genes.gtf"
 } else if (organism == "mouse") {
   mt.marker = "^mt-"
   hb.marker = "^Hb[^(p)]"
   ribo.marker = "^Rp[sl]" 
+  y.genes <- readLines("y_genes_mm10_symbols.txt")
   genes.file = "/projects/b1012/xvault/REFERENCES/10xGenomics/RNA-seq/mm10/refdata-gex-mm10-2020-A/genes/genes.gtf"
   xist.gene = "Xist"
 } else {
@@ -151,6 +129,14 @@ if (organism == "human"){
   ribo.marker = "NONE"
   xist.gene = "NONE"
 }
+
+
+################################################################################
+# Format the sample names
+################################################################################
+
+ids <- sanitize_sample_names(formatted.samples)
+
 ```
 
 
@@ -177,81 +163,19 @@ This report was generated on `r formatted.date`
 
 # Part 1: Loading data from CellRanger into R
 
-For more insight on what the different metrics presented here actually mean, see this article on the 10x website: https://www.10xgenomics.com/analysis-guides/quality-assessment-using-the-cell-ranger-web-summary
+## Sequencing QC table
+
+For more insight on what the different metrics presented here mean, see this article on the 10x website: https://www.10xgenomics.com/analysis-guides/quality-assessment-using-the-cell-ranger-web-summary
 
 <br/>
 <br/>
 
-
-```{r read_metrics, results='asis', eval=run_metrics_tables}
-
-# Import the metrics summaries
-d10x.metrics <- lapply(ids, function(sample.name){
-  print(sample.name)
-  metrics.path.cleaned <- file.path(dataset.path,sample.name,"metrics_summary.csv")
-  metrics.path.raw <- file.path(dataset.path, sample.name, "outs/metrics_summary.csv") 
-  tryCatch( 
-    {  
-      if(file.exists(metrics.path.cleaned)){     
-        metrics <- read.csv(metrics.path.cleaned, colClasses = "character")  
-        } else if (file.exists(metrics.path.raw)) { 
-          metrics <- read.csv(metrics.path.raw, colClasses = "character")  
-        } 
-      }, 
-    error=function(cond) { 
-      message(paste0("Error loading the sample ", sample.name)) 
-      message("Here's the original error message:")  
-      }
-    )
-})
-
-# Make them a data.frame
-experiment.metrics <- do.call("rbind", d10x.metrics)
-rownames(experiment.metrics) <- ids
-df <- if (inherits(experiment.metrics, "data.frame")) {
-  experiment.metrics
-} else {
-  as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE)
-}
-
-
-# Keep only the desired metrics (columns)
-keep <- c("Estimated.Number.of.Cells",
-          "Mean.Reads.per.Cell",
-          "Median.Genes.per.Cell",
-          "Valid.Barcodes")
-df_sub <- df[, keep, drop = FALSE]
-
-# Prettify metric names: "Estimated.Number.of.Cells" -> "Estimated number of cells"
-pretty_names <- function(x) {
-  s <- gsub("\\.", " ", x)        # dots -> spaces
-  s <- tolower(s)                 # sentence case
-  substr(s, 1, 1) <- toupper(substr(s, 1, 1))
-  s
-}
-colnames(df_sub) <- pretty_names(colnames(df_sub))
-
-# Transpose so rows = metrics, cols = samples
-qc.table <- t(df_sub)
-# carry metric names into a first column instead of rownames
-qc.table <- as.data.frame(qc.table, stringsAsFactors = FALSE)
-qc.table$metric <- rownames(qc.table)
-row.names(qc.table) <- NULL
-# reorder so metric column is first
-qc.table <- qc.table[, c(ncol(qc.table), 1:(ncol(qc.table)-1))]
-
-# Format as a table for pdf
-x <- qc.table                    # your table: first col = Metric, others = samples
-x[] <- lapply(x, function(v) gsub("%","\\%", v, fixed=TRUE))  # escape % for LaTeX
-
-cat(
-  "\\begin{tabular}{l", paste(rep("r", ncol(x)-1), collapse=""), "}\n\\hline\n",
-  paste(names(x), collapse=" & "), " \\\\ \\hline\n",
-  paste(apply(x, 1, function(r) paste(r, collapse=" & ")), collapse=" \\\\\n"),
-  " \\\\ \\hline\n\\end{tabular}\n",
-  sep = ""
-)
+```{r prep_qc_table, eval=run_metrics_tables, message=FALSE, warning=FALSE}
+# --- Import the metrics summaries (quiet) ---
+qc.table <- make_qc_table(ids)
+render_formatted_table(qc.table)
 ```
+
 
 
 ## Load the Cell Ranger Matrix Data and create the base Seurat object.
@@ -266,6 +190,7 @@ Objects created for:
 
 # make a Seurat object per sample
 seurat.list <- lapply(ids, function(s) {
+  # m <- read_10x_any(s)
   m <- read_10x_any(s)
   s_fixed <- gsub("-", "_", s)
   colnames(m) <- paste0(sub("-.*$", "", colnames(m)), "-", s_fixed)  # keep 10x barcode-left, add sample suffix
@@ -277,61 +202,42 @@ seurat.list <- lapply(ids, function(s) {
 names(seurat.list) <- gsub("-", "_", ids)
 ```
 
-```{r set percent.mito.hb}
+```{r set_percent_feats}
 
 for (i in 1:length(seurat.list)) {
   seurat.list[[i]][["percent.mt"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = mt.marker)
   # Calculate percentage of counts from hemoglobin genes (RBC markers)
   seurat.list[[i]][["percent.hb"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = hb.marker)
+  seurat.list[[i]][["percent.y"]] <- PercentageFeatureSet(seurat.list[[i]], features = y.genes)
+  seurat.list[[i]][["percent.ribo"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = ribo.marker)
+  
 }
 
 ```
 
 ```{r gather_qc_data_for_tables}
-nCount_data <- do.call(rbind, lapply(names(seurat.list), function(s) {
-  so <- seurat.list[[s]]
-  data.frame(
-    Sample      = s,
-    nCount_RNA  = so$nCount_RNA,
-    row.names   = colnames(so),
-    check.names = FALSE
-  )
-}))
+# Alphabetical sorting (default)
+nCount_data       <- make_metric_table_from_list(seurat.list, "nCount_RNA")
+nFeature_data     <- make_metric_table_from_list(seurat.list, "nFeature_RNA")
+percent_mt_data   <- make_metric_table_from_list(seurat.list, "percent.mt")
+percent_hb_data   <- make_metric_table_from_list(seurat.list, "percent.hb")
+percent_y_data    <- make_metric_table_from_list(seurat.list, "percent.y")
+percent_ribo_data <- make_metric_table_from_list(seurat.list, "percent.ribo")
 
-nFeature_data <- do.call(rbind, lapply(names(seurat.list), function(s) {
-  so <- seurat.list[[s]]
-  data.frame(
-    Sample      = s,
-    nFeature_RNA  = so$nFeature_RNA,
-    row.names   = colnames(so),
-    check.names = FALSE
-  )
-}))
+# Or with a custom sample order
+# sample_order <- c("sample_1", "sample_2",
+#                   "sample_3", "sample_4")
+# 
+# nCount_data <- make_metric_table_from_list(seurat.list, "nCount_RNA", sample_levels = sample_order)
 
-percent_mt_data <- do.call(rbind, lapply(names(seurat.list), function(s) {
-  so <- seurat.list[[s]]
-  data.frame(
-    Sample      = s,
-    percent.mt = so$percent.mt,
-    row.names   = colnames(so),
-    check.names = FALSE
-  )
-}))
 
-percent_hb_data <- do.call(rbind, lapply(names(seurat.list), function(s) {
-  so <- seurat.list[[s]]
-  data.frame(
-    Sample      = s,
-    percent.hb  = so$percent.hb,
-    row.names   = colnames(so),
-    check.names = FALSE
-  )
-}))
 
 to.save.for.report <- c("nCount_data",
                         "nFeature_data", 
                         "percent_mt_data",
-                        "percent_hb_data")
+                        "percent_hb_data",
+                        "percent_y_data", 
+                        "percent_ribo_data")
 
 save(list = to.save.for.report, file=QC.tables.path)
 ```
@@ -353,7 +259,7 @@ p_nCount <- vln_boxplot(data = nCount_data,
 
 p_nCount
 
-save_png_plot(p_nCount, "nCount_RNA_distribution.pdf")
+save_png_plot(p_nCount, "nCount_RNA_distribution.png")
 ```
 
 
@@ -369,7 +275,7 @@ p_nFeature <- vln_boxplot(data = nFeature_data,
 
 
 p_nFeature
-save_png_plot(p_nFeature, "nFeature_RNA_distribution.pdf")
+save_png_plot(p_nFeature, "nFeature_RNA_distribution.png")
 ```
 
 ## Percent mito distribution
@@ -383,7 +289,7 @@ p_percent_mt <- vln_boxplot(data = percent_mt_data,
 
 
 p_percent_mt
-save_png_plot(p_percent_mt, "percent_mt_distribution.pdf")
+save_png_plot(p_percent_mt, "percent_mt_distribution.png")
 ```
 
 ## Percent RBC distribution
@@ -396,15 +302,48 @@ p_percent_hb <- vln_boxplot(data = percent_hb_data,
                           title = "Percent hemoglobin content (RBCs) per Sample")
 
 p_percent_hb
-save_png_plot(p_percent_hb, "percent_hb_distribution.pdf")
+save_png_plot(p_percent_hb, "percent_hb_distribution.png")
 
+```
+
+## Percent ribo genes distribution
+
+```{r pct_ribo_plot}
+
+p_percent_ribo <- vln_boxplot(data = percent_ribo_data,  
+                          x = Sample, 
+                          y = percent.ribo,
+                          title = "Percent ribo gene expression per Sample")
+
+p_percent_ribo
+save_png_plot(p_percent_ribo, "percent_ribo_distribution.png")
+
+```
+
+
+## Percent Y-chr genes distribution
+
+```{r pct_y_plot}
+
+p_percent_y <- vln_boxplot(data = percent_y_data,  
+                          x = Sample, 
+                          y = percent.y,
+                          title = "Percent Y chr gene expression per Sample")
+
+p_percent_y
+save_png_plot(p_percent_y, "percent_y_distribution.png")
 ```
 
 ```{r merge_list_into_agg_obj}
 # merge => v5 stores each sample as its own layer(s) inside RNA
-seurat.obj.v5 <- Reduce(function(x, y) merge(x, y, add.cell.ids = c(unique(x$sample_id), unique(y$sample_id))),
-                        seurat.list)
+# seurat.obj.v5 <- Reduce(function(x, y) merge(x, y, add.cell.ids = c(unique(x$sample_id), unique(y$sample_id))), seurat.list)
 
+seurat.obj.v5 <- merge(
+  x            = seurat.list[[1]],
+  y            = seurat.list[-1],
+  add.cell.ids = ids,
+  project      = "MBE"
+)
 
 seurat.obj.v5 <- JoinLayers(seurat.obj.v5)
 
@@ -432,7 +371,7 @@ saveRDS(seurat.obj.v5, unfiltered.seurat.obj.path)
 
 
 ## Session Information
-```{r sessioinfo}
+```{r sessioinfo, eval=TRUE}
 sessionInfo()
 ```
 
