@@ -1,7 +1,7 @@
 ---
 # This is for the header of all of the report files generated. Fill this out!
 title: "Testing"
-author: "Brian"
+author: "analyst name"
 output: 
         html_document: default 
         html_notebook: default

@@ -16,14 +16,14 @@ user.report.num=args[1]
 user.suffix=args[2]
 
 
-render_report = function(suffix, report.num){
+render_report = function(suffix, template.filename){
         config.file=paste0("config",  suffix, ".yaml")
-        template.filename=paste0("scRNA_template_PART", report.num, ".Rmd")
-        output.filename=paste0("report_part", report.num, suffix, "_output.html")
+        # template.filename=paste0("scRNA_template_PART", report.num, ".Rmd")
+        # output.filename=paste0("report_part", report.num, suffix, "_output.html")
 
         rmarkdown::render(template.filename,
                           params = list( config.args = config.file),
-                          output_file = output.filename )
+                          output_file = "test.pdf" )
 
 }
 

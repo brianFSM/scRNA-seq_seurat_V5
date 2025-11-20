@@ -1,13 +1,13 @@
 ---
 title: "scRNA-seq QC Report"
 output:
-  png_document:
+  pdf_document:
     toc: true
     number_sections: true
     fig_caption: true
     latex_engine: xelatex
     includes:
-      in_header: common-png.tex
+      in_header: common-pdf.tex
 params:
   config.args: "./config.yaml"
 ---
