@@ -1,58 +1,37 @@
----
-project: 
-        analyst-name: "Brian Wray" # Also fill this out in 'common.yaml'
-        project-name: "scRNA-seq pipeline dev" # Also fill this out in 'common.yaml'
-        project-decription: "Development of full scRNA-seq pipeline for QDSC bioinfo use"
-        organism: "mouse"
-        run_cell_cycle: "TRUE" # Cell cycle predictions can't run if you aren't using human or mouse, so you can turn it off here.
-        samples:
-                -"BM-KO"
-                -"BM-WT"
-
-data: 
-        # set to false when importing matrix files (e.g. when running on analytics node)
-        import-h5: FALSE
-        parent_directory_path: "/Users/brianwray/Desktop/_from_quest/scRNA-seq_test_data" # see README.md for directory structure
-        rds-file-path: "/Users/brianwray/Desktop/_from_quest/scRNA-seq_seurat_V5/data"
-
+project:
+  analyst-name: Your Name
+  project-name: 'Test'
+  project-decription: "ToDo"
+  organism: mouse
+  run_cell_cycle: 'TRUE'
+  samples: -"Sample1" -"Sample2" -"Sample3" -"Sample4"
+data:
+  import-h5: no
+  parent_directory_path: path/to/CellRanger
+  rds-file-path: path/to/results
 analysis:
-        run_tests: FALSE
-        node_type: "analytics" # compute (when submitting with sbatch) or analytics. See import-h5 above as well.
-        part1: 
-                part1_rds_save_filename: "original_seurat_object.RDS"
-                part1_report_tables_filename: "part1_tables_for_report.RData" 
-                part1_suffix: ""
-                generate_metrics_tables: "TRUE"
-                ggplot_dir: "ggplot"
-        part2: 
-                part2_rds_open_filename: "original_seurat_object.RDS"
-                mito_cutoff: 100 
-                RNA_count_floor: 0 
-                RNA_count_ceiling: 100000 
-                feature_count_floor: 0 
-                feature_count_ceiling: 10000 
-                rbc_cutoff: 100 
-                ribo_cutoff: 0
-                part2_rds_save_filename: "pre_sample_corrected.RDS"
-                part2_report_tables_filename: "part2_tables_for_report.RData"
-                part2_suffix: ""
-        part3:
-                part3_rds_open_filename: "pre_sample_corrected.RDS"
-                part3_rds_save_filename: "pca_sample_corrected.RDS"
-                part3_report_tables_filename: "part3_tables_for_report.RData"
-                batch_correction: "none" # sctransform, orig_ident, or none
-                part3_suffix: ""
-        part4:
-                part4_rds_open_filename: "pca_sample_corrected.RDS"
-                num_pcs: 50
-                part4_rds_save_filename: "clusters_seurat_object.RDS"
-                part4_report_tables_filename: "part4_tables_for_report.RData"
-                part4_suffix: ""
-        part5:
-                part5_rds_open_filename: "clusters_seurat_object.RDS"
-                resolution_selection: "integrated_snn_res.0.2"
-                part5_report_tables_filename: "part5_tables_for_report.RData"
-                part5_rds_save_filename: "clustered_seurat_object_and_markers.RDS"
-                marker_gene_dir: "marker_genes"
-                part5_suffix: ""
----
+  run_tests: no
+  node_type: analytics
+  part1:
+    part1_rds_save_filename: _0_raw_seurat_object.RDS
+    part1_report_tables_filename: part1_tables_for_report.RData
+    part1_suffix: ''
+    generate_metrics_tables: 'TRUE'
+    ggplot_dir: ggplot
+  part2:
+    mito_ceiling: 5
+    RNA_count_floor: 500
+    RNA_count_ceiling: 25000
+    feature_count_floor: 300
+    feature_count_ceiling: 6000
+    rbc_ceiling: 100
+    ribo_floor: 5
+    part2_rds_open_filename: _0_raw_seurat_object.RDS
+    merged_seurat_obj_file: _2_seurat5_obj_merged.RDS
+    integrated_seurat_obj_file: _3_seurat5_obj_integrated.RDS
+    clustered_seurat_obj_file: _4_seurat5_obj_clustered.RDS
+    part2_report_tables_filename: part2_tables_for_report.RData
+    marker_gene_dir: marker_genes
+    part2_suffix: ''
+    clustering_resolution: None
+    num_clusters: 0
