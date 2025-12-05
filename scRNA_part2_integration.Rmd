@@ -10,7 +10,7 @@ params:
   config.args: "./config.yaml"
 ---
 
-```{r setup, include=FALSE}
+```{r setup}
 knitr::opts_chunk$set(
   warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
 )
@@ -48,12 +48,14 @@ if (!suppressMessages(require(DoubletFinder))) stop("DoubletFinder is required")
 # )
 # install.packages(devtools)
 # devtools::install_github("immunogenomics/presto")
-if (!suppressMessages(require(presto))) stop("presto is required")
+if (!requireNamespace("presto", quietly = TRUE)) {
+  message("Warning: presto not installed — FindAllMarkers will take a long time to run.")
+}
 
 
 ```
 
-```{r prepare_inline_variables, eval = TRUE}
+```{r prepare_inline_variables}
 # get the datetime and set it to variable
 todays.date <- Sys.Date()
 formatted.date <- format(todays.date, format="%B %d %Y")
@@ -62,7 +64,7 @@ config.args <- read_yaml(params$config.args)
 
 ```
 
-```{r user_vals, eval=TRUE}
+```{r user_vals}
 cfg <- config.args
 cfg.analysis <- cfg$analysis
 
@@ -98,10 +100,6 @@ integrated.seurat.obj.path <- suffix_path(r.obj.loc, p2$integrated_seurat_obj_fi
 QC.tables.path         <- suffix_path(r.obj.loc, p1$part1_report_tables_filename, part1.suffix)
 ggplot.directory       <- file.path(r.obj.loc, p1$ggplot_dir)
 marker.gene.dir <- suffix_path(r.obj.loc, p2$marker_gene_dir, part2.suffix)
-
-# ggplot.directory.name <- config.args$analysis$part1$ggplot_dir
-# ggplot.directory <- file.path(r.obj.loc, ggplot.directory.name)
-
 
   if (!file.exists(ggplot.directory)) {
  dir.create(ggplot.directory, showWarnings = FALSE, recursive = TRUE)
@@ -173,7 +171,7 @@ p_nCount <- shaded_vln_boxplot(data = nCount_data,
                           this_ceiling = RNA.count.ceiling)
 
 p_nCount 
-save_png_plot(p_nCount, "nCount_RNA_shaded_vln.png")
+save_png_plot(p_nCount, "nCount_RNA_shaded_vln.png", ggplot.directory)
 ```
 ## nFeature distribution
 
@@ -189,7 +187,7 @@ p_nFeature <- shaded_vln_boxplot(data = nFeature_data,
 
 
 p_nFeature
-save_png_plot(p_nFeature, "nFeature_RNA_shaded_vln.png")
+save_png_plot(p_nFeature, "nFeature_RNA_shaded_vln.png", ggplot.directory)
 ```
 
 ## Percent mito distribution
@@ -204,7 +202,7 @@ p_percent_mt <- shaded_vln_boxplot(data = percent_mt_data,
 
 
 p_percent_mt
-save_png_plot(p_percent_mt, "percent_mt_shaded_vln.png")
+save_png_plot(p_percent_mt, "percent_mt_shaded_vln.png", ggplot.directory)
 ```
 
 ## Percent RBC distribution
@@ -218,7 +216,7 @@ p_percent_hb <- shaded_vln_boxplot(data = percent_hb_data,
                           this_ceiling = rbc.ceiling)
 
 p_percent_hb
-save_png_plot(p_percent_hb, "percent_hb_shaded_vln.png")
+save_png_plot(p_percent_hb, "percent_hb_shaded_vln.png", ggplot.directory)
 
 ```
 
@@ -233,7 +231,7 @@ p_percent_ribo <- shaded_vln_boxplot(data = percent_ribo_data,
                           this_floor = ribo.floor)
 
 p_percent_ribo
-save_png_plot(p_percent_ribo, "percent_ribo_shaded_vln.png")
+save_png_plot(p_percent_ribo, "percent_ribo_shaded_vln.png", ggplot.directory)
 
 ```
 ## Cell filtering stats
@@ -301,7 +299,7 @@ p_nCount_filt <- vln_boxplot(data = nCount.data.filtered,
                           title = "nCount_RNA Distribution per Sample after filtering")
 p_nCount_filt
 
-save_png_plot(p_nCount_filt, "nCount_RNA_filt.png")
+save_png_plot(p_nCount_filt, "nCount_RNA_filt.png", ggplot.directory)
 ```
 ## Distribution of the number of genes present per cell after filter
 
@@ -315,7 +313,7 @@ p.nFeature.filt <- vln_boxplot(data = nFeature.data.filtered,
 
 
 p.nFeature.filt
-save_png_plot(p.nFeature.filt, "nFeature_RNA_filt.png")
+save_png_plot(p.nFeature.filt, "nFeature_RNA_filt.png", ggplot.directory)
 ```
 
 ## Percent mito distribution after filter
@@ -329,7 +327,7 @@ p.percent.mt.filt <- vln_boxplot(data = percent.mt.data.filtered,
 
 
 p.percent.mt.filt
-save_png_plot(p.percent.mt.filt, "percent_mt_filt.png")
+save_png_plot(p.percent.mt.filt, "percent_mt_filt.png", ggplot.directory)
 ```
 
 ## Percent RBC distribution after filter
@@ -342,7 +340,7 @@ p.percent.hb.filt <- vln_boxplot(data = percent.hb.data.filtered,
                           title = "Percent hemoglobin content (RBCs) per Sample after filtering")
 
 p.percent.hb.filt
-save_png_plot(p.percent.hb.filt, "percent_hb_filtered.png")
+save_png_plot(p.percent.hb.filt, "percent_hb_filtered.png", ggplot.directory)
 
 ```
 
@@ -358,21 +356,8 @@ p.percent.ribo.filt <- vln_boxplot(data = percent.ribo.data.filtered,
                           title = "Percent ribo gene expression per Sample after filtering")
 
 p.percent.ribo.filt
-save_png_plot(p.percent.ribo.filt, "percent_ribo_filtered.png")
+save_png_plot(p.percent.ribo.filt, "percent_ribo_filtered.png", ggplot.directory)
 
-```
-
-## Percent Y-chr genes distribution after filter
-
-```{r pct_y_filt}
-
-p.percent.y.filt <- vln_boxplot(data = percent.y.data.filtered,  
-                          x = Sample, 
-                          y = percent.y,
-                          title = "Percent Y chr gene expression per Sample after filteriing")
-
-p.percent.y.filt
-save_png_plot(p.percent.y.filt, "percent_y_filtered.png")
 ```
 
 
@@ -401,7 +386,7 @@ print(paste0("Saved merged object to ", merged.seurat.obj.path))
 ```{r merged_obj_umap}
 merged.dimplot <- DimPlot(seurat5.obj, reduction = "umap", group.by = "sample_id")
 
-save_png_plot(merged.dimplot, "umap_merged_seruat_obj.png")
+save_png_plot(merged.dimplot, "umap_merged_seruat_obj.png", ggplot.directory)
 merged.dimplot
 ```
 
@@ -438,7 +423,7 @@ seurat5.obj.integrated <- RunUMAP(
 )
 
 
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path)
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
 ```
 
 ## clustering
@@ -515,7 +500,7 @@ time.len <- difftime(Sys.time(), t0, units = "mins")
 print(paste0("Clustering took ", round(time.len, 2), " minutes to run."))
 
 
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path)
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
 print(paste0("Saved clustered object to ", integrated.seurat.obj.path))
 ```
 
@@ -626,8 +611,8 @@ p_silhouette <- ggplot(metrics_df, aes(x = Resolution, y = Silhouette_Score)) +
   ggtitle("Silhouette Score vs. Resolution") +
   theme_minimal()
 
-save_png_plot(p_clusters, "number_of_clusters_vs_resolution.png", width = 8, height = 6)
-save_png_plot(p_silhouette, "silhouette_score_vs_resolution.png",  width = 8, height = 6)
+save_png_plot(p_clusters, "number_of_clusters_vs_resolution.png", ggplot.directory, width = 8, height = 6)
+save_png_plot(p_silhouette, "silhouette_score_vs_resolution.png",  ggplot.directory, width = 8, height = 6)
 ```
 
 
@@ -662,11 +647,11 @@ yaml::write_yaml(cfg, params$config.args)
 p1_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", group.by = "sample_id", label = TRUE)
 p2_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", group.by = clustering.resolution, label = TRUE)
 
-save_png_plot(p1_post, "umap_sample_post_integration.png", width = 8, height = 6)
-save_png_plot(p2_post, "umap_condition_post_integration.png", width = 8, height = 6)
+save_png_plot(p1_post, "umap_sample_post_integration.png", ggplot.directory, width = 8, height = 6)
+save_png_plot(p2_post, "umap_condition_post_integration.png", ggplot.directory, width = 8, height = 6)
 
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path)
-cat(paste0("Saved clustered object, for clustering resolution ", clustering.resolutionm, 
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
+cat(paste0("Saved clustered object, for clustering resolution ", clustering.resolution, 
            " at ", integrated.seurat.obj.path))
 ```
 
@@ -726,7 +711,7 @@ integrated.dimplot.by.sample <- DimPlot(seurat5.obj.integrated,
                               reduction = "umap.postint", 
                               group.by = "sample_id")
 
-save_png_plot(integrated.dimplot.by.sample, "integrated_umap_by_sample.png")
+save_png_plot(integrated.dimplot.by.sample, "integrated_umap_by_sample.png", ggplot.directory)
 integrated.dimplot.by.sample
 ```
 ## Umap of the Seurat object after integration, colored by clusters 
@@ -737,7 +722,7 @@ integrated.dimplot.by.cluster <- DimPlot(seurat5.obj.integrated,
                               group.by = clustering.resolution,
                               label = TRUE)
 
-save_png_plot(integrated.dimplot.by.cluster, "integrated_umap_by_cluster.png")
+save_png_plot(integrated.dimplot.by.cluster, "integrated_umap_by_cluster.png", ggplot.directory)
 integrated.dimplot.by.cluster
 ```
 
@@ -749,7 +734,7 @@ pca_post <- DimPlot(seurat5.obj.integrated, reduction = "pca", group.by = "sampl
 
 
 pca_post
-save_png_plot(pca_post, "pca_integrated.png")
+save_png_plot(pca_post, "pca_integrated.png", ggplot.directory)
 
 ```
 
@@ -784,7 +769,7 @@ for (i in seq(0, num.clusters - 1)){
 write.csv(cluster.markers.sct, 
           file.path(marker.gene.dir, paste0("cluster_markers_", clustering.resolution, ".csv")))
 
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path)
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
 
 print("Saved final object, with prepSCTFindMarkers performed.")
 ```

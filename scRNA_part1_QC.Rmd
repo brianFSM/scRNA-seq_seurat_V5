@@ -14,7 +14,7 @@ params:
 
 
 
-```{r setup, include=FALSE}
+```{r setup}
 # install.packages("tinytex")
 # tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
 # tinytex::is_tinytex()        # should return TRUE
@@ -136,8 +136,19 @@ if (organism == "human"){
 ################################################################################
 
 ids <- sanitize_sample_names(formatted.samples)
+seurat.sample.names <- gsub("-", "_", formatted.samples)
+```
+
+```{r set_report_paths}
+# For the included functions
+# set_report_paths(
+		 # ggplot.dir <- ggplot.directory,
+		 # dataset.path <- dataset.path)
 
 ```
+
+
+
 
 
 ## Report and variable details
@@ -172,7 +183,7 @@ For more insight on what the different metrics presented here mean, see this art
 
 ```{r prep_qc_table, eval=run_metrics_tables, message=FALSE, warning=FALSE}
 # --- Import the metrics summaries (quiet) ---
-qc.table <- make_qc_table(ids)
+qc.table <- make_qc_table(ids, dataset.path)
 render_formatted_table(qc.table)
 ```
 
@@ -191,7 +202,7 @@ Objects created for:
 # make a Seurat object per sample
 seurat.list <- lapply(ids, function(s) {
   # m <- read_10x_any(s)
-  m <- read_10x_any(s)
+  m <- read_10x_any(s, dataset.path)
   s_fixed <- gsub("-", "_", s)
   colnames(m) <- paste0(sub("-.*$", "", colnames(m)), "-", s_fixed)  # keep 10x barcode-left, add sample suffix
   o <- CreateSeuratObject(counts = m, project = experiment.name, min.features = 300)
@@ -259,7 +270,7 @@ p_nCount <- vln_boxplot(data = nCount_data,
 
 p_nCount
 
-save_png_plot(p_nCount, "nCount_RNA_distribution.png")
+save_png_plot(p_nCount, "nCount_RNA_distribution.png", ggplot.directory)
 ```
 
 
@@ -275,7 +286,7 @@ p_nFeature <- vln_boxplot(data = nFeature_data,
 
 
 p_nFeature
-save_png_plot(p_nFeature, "nFeature_RNA_distribution.png")
+save_png_plot(p_nFeature, "nFeature_RNA_distribution.png", ggplot.directory)
 ```
 
 ## Percent mito distribution
@@ -289,7 +300,7 @@ p_percent_mt <- vln_boxplot(data = percent_mt_data,
 
 
 p_percent_mt
-save_png_plot(p_percent_mt, "percent_mt_distribution.png")
+save_png_plot(p_percent_mt, "percent_mt_distribution.png", ggplot.directory)
 ```
 
 ## Percent RBC distribution
@@ -302,7 +313,7 @@ p_percent_hb <- vln_boxplot(data = percent_hb_data,
                           title = "Percent hemoglobin content (RBCs) per Sample")
 
 p_percent_hb
-save_png_plot(p_percent_hb, "percent_hb_distribution.png")
+save_png_plot(p_percent_hb, "percent_hb_distribution.png", ggplot.directory)
 
 ```
 
@@ -316,7 +327,7 @@ p_percent_ribo <- vln_boxplot(data = percent_ribo_data,
                           title = "Percent ribo gene expression per Sample")
 
 p_percent_ribo
-save_png_plot(p_percent_ribo, "percent_ribo_distribution.png")
+save_png_plot(p_percent_ribo, "percent_ribo_distribution.png", ggplot.directory)
 
 ```
 
@@ -331,7 +342,7 @@ p_percent_y <- vln_boxplot(data = percent_y_data,
                           title = "Percent Y chr gene expression per Sample")
 
 p_percent_y
-save_png_plot(p_percent_y, "percent_y_distribution.png")
+save_png_plot(p_percent_y, "percent_y_distribution.png", ggplot.directory)
 ```
 
 ```{r merge_list_into_agg_obj}

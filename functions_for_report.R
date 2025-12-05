@@ -1,26 +1,41 @@
-suffix_path <- function(base_dir, filename, suffix = "") {
-  root <- tools::file_path_sans_ext(filename)
-  ext  <- tools::file_ext(filename)
-  fn   <- if (nzchar(suffix)) paste0(root, suffix, if (nzchar(ext)) paste0(".", ext) else "") else filename
-  file.path(base_dir, fn)
+# functions_for_report.R
+
+# Setup some directories in this scope so that things are saved properly
+
+# .report_cfg <- new.env(parent = emptyenv())
+# 
+# # called once from the Rmd to set paths
+# set_report_paths <- function(base.path = NULL,
+#                              ggplot.dir   = NULL,
+#                              dataset.path  = NULL,
+#                              out.dir   = NULL) {
+#   if (!is.null(base.path)) .report_cfg$base.path <- base.path
+#   if (!is.null(ggplot.dir))   .report_cfg$ggplot.dir   <- ggplot.dir
+#   if (!is.null(dataset.path))  .report_cfg$dataset.path  <- dataset.path
+#   if (!is.null(out.dir))   .report_cfg$out.dir   <- out.dir
+# }
+# 
+# # helper if you want it
+# get_report_cfg <- function() .report_cfg
+
+
+# Helper function that formats filenames. Allows for adding
+# suffix to config for alternate versions of analysis (e.g. 
+# different clustering resolutions, filters, etc)
+suffix_path <- function(base_dir, filename, suffix = "") { 
+	# cfg <- get_report_cfg() 
+	# base_dir <- cfg$base.dir
+
+	root <- tools::file_path_sans_ext(filename) 
+	ext  <- tools::file_ext(filename) 
+	fn   <- if (nzchar(suffix)) paste0(root, suffix, if (nzchar(ext)) paste0(".", ext) else "") else filename 
+	file.path(base_dir, fn)
 }
 
+# Helper function to make the sample names pretty and workable
 sanitize_sample_names <- function(formatted.samples){
 
-  # setup the sample names for printing in the inline report
-  formatted.samples <- gsub("\"", "", formatted.samples)
-  formatted.samples <- gsub("\ ", "  \n ", formatted.samples)
-  
-  # These two replace the first dash in the file names, which comes from the 
-  # formatting of the config file, with '*' for the rmd report
-  formatted.samples <- gsub("\ -", " * ", formatted.samples)
-  formatted.samples <- gsub("^-", " * ", formatted.samples)
-  
-  formatted.samples <- paste0(formatted.samples, " <br /> ")
-  
-  # generate list of ids for use in importing data
-  ids <- config.args$project$samples # sample names, need to match the folders containing the h5 files
-  seurat.sample.names <- gsub("-", "_", ids)
+  ids <- formatted.samples
   
   # Use sub instead of gsub in the first call. gsub replaces all, while sub 
   # only replaces the first instance. The first dash is just there as formatting
@@ -30,119 +45,131 @@ sanitize_sample_names <- function(formatted.samples){
   ids <- gsub("\"", "", ids)
   ids <- strsplit(ids, "[[:space:]]")
   ids <- unlist(ids)
-  # return
+  
+  
   ids
 
 }
+
+
 # This got complicated as I was learning about how ggsave saves images (i.e. 
 # be default it saves huge images) and how the pdf rendering presents those
 # images (i.e. it makes them huge if they're save huge)
-save_png_plot <- function(p, filename,
-                          dir = ggplot.directory,
+save_png_plot <- function(p, filename, ggplot.dir,
                           width = 7, height = 5, dpi = 150) {
-  if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  out <- file.path(dir,  filename)
-  print(out)
-  # works for ggplot or any grid grob via cowplot::ggdraw
-  if (inherits(p, "ggplot")) {
-    ggplot2::ggsave(out, plot = p, width = width, height = height,
-                    units = "in", dpi = dpi, limitsize = TRUE)
-  } else if (!is.null(p$gtable)) { # pheatmap object
-    png(out, width = width, height = height, units = "in", res = dpi)
-    grid::grid.newpage(); grid::grid.draw(p$gtable); dev.off()
-  } else if (inherits(p, "grob") || inherits(p, "gTree")) {
-    png(out, width = width, height = height, units = "in", res = dpi)
-    grid::grid.newpage(); grid::grid.draw(p); dev.off()
-  } else {
-    # last resort: try plotting it
-    png(out, width = width, height = height, units = "in", res = dpi)
-    print(p); dev.off()
-  }
-  invisible(out)
+
+	# cfg <- get_report_cfg()
+	# dir <- cfg$ggplot.dir 
+	
+	if (!dir.exists(ggplot.dir)) dir.create(ggplot.dir, recursive = TRUE, showWarnings = FALSE) 
+	out <- file.path(ggplot.dir,  filename) 
+	print(out)
+	
+	# works for ggplot or any grid grob via cowplot::ggdraw 
+	if (inherits(p, "ggplot")) { 
+		ggplot2::ggsave(out, plot = p, width = width, height = height, 
+				units = "in", dpi = dpi, limitsize = TRUE) 
+	} else if (!is.null(p$gtable)) { # pheatmap object 
+		png(out, width = width, height = height, units = "in", res = dpi) 
+		grid::grid.newpage(); grid::grid.draw(p$gtable); dev.off() 
+	} else if (inherits(p, "grob") || inherits(p, "gTree")) { 
+		png(out, width = width, height = height, units = "in", res = dpi) 
+		grid::grid.newpage(); grid::grid.draw(p); dev.off() 
+	} else { 
+		# last resort: try plotting it 
+		png(out, width = width, height = height, units = "in", res = dpi) 
+		print(p); dev.off() 
+	} 
+	invisible(out) 
 }
 
 
-make_qc_table <- function(ids){
+# Filter out the metrics we don't want, and format everything nicely
+make_qc_table <- function(ids, dataset.path){
   
-  d10x.metrics <- lapply(ids, function(sample.name){
-    metrics.path.cleaned <- file.path(dataset.path, sample.name, "metrics_summary.csv")
-    metrics.path.raw     <- file.path(dataset.path, sample.name, "outs/metrics_summary.csv")
-    tryCatch({
-      if (file.exists(metrics.path.cleaned)) {
-        read.csv(metrics.path.cleaned, colClasses = "character")
-      } else if (file.exists(metrics.path.raw)) {
-        read.csv(metrics.path.raw, colClasses = "character")
-      } else {
-        data.frame()
-      }
-    }, error = function(cond){
-      message(paste0("Error loading the sample ", sample.name, ": ", conditionMessage(cond)))
-      data.frame()
-    })
-  })
+	d10x.metrics <- lapply(ids, function(sample.name){ 
+				       metrics.path.cleaned <- file.path(dataset.path, sample.name, "metrics_summary.csv") 
+				       metrics.path.raw     <- file.path(dataset.path, sample.name, "outs/metrics_summary.csv") 
+				       tryCatch({ 
+					       if (file.exists(metrics.path.cleaned)) { 
+						       read.csv(metrics.path.cleaned, colClasses = "character") 
+					       } else if (file.exists(metrics.path.raw)) { 
+						       read.csv(metrics.path.raw, colClasses = "character") 
+					       } else { 
+						       data.frame() 
+					       } 
+				       }, error = function(cond){ 
+					       message(paste0("Error loading the sample ", sample.name, ": ", conditionMessage(cond))) 
+					       data.frame() 
+				       }) 
+				})
 
-  # --- Make them a data.frame ---
-  experiment.metrics <- do.call("rbind", d10x.metrics)
-  rownames(experiment.metrics) <- ids
-  df <- if (inherits(experiment.metrics, "data.frame")) {
-    experiment.metrics
-  } else {
-    as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE)
-  }
-  
-  # --- Keep only desired metrics ---
-  keep <- c("Estimated.Number.of.Cells",
-            "Mean.Reads.per.Cell",
-            "Median.Genes.per.Cell",
-            "Valid.Barcodes")
-  df_sub <- df[, keep, drop = FALSE]
-  
-  # --- Prettify metric names ---
-  pretty_names <- function(x) {
-    s <- gsub("\\.", " ", x)
-    s <- tolower(s)
-    substr(s, 1, 1) <- toupper(substr(s, 1, 1))
-    s
-  }
-  colnames(df_sub) <- pretty_names(colnames(df_sub))
-  
-  # --- Transpose; put 'metric' first ---
-  qc.table <- t(df_sub)
-  qc.table <- as.data.frame(qc.table, stringsAsFactors = FALSE)
-  qc.table$metric <- rownames(qc.table)
-  row.names(qc.table) <- NULL
-  qc.table <- qc.table[, c(ncol(qc.table), 1:(ncol(qc.table)-1))]
-  
-  # --- Order metrics (optional) ---
-  metric_order <- c("Estimated number of cells",
-                    "Mean reads per cell",
-                    "Median genes per cell",
-                    "Valid barcodes")
-  qc.table <- qc.table %>%
-    mutate(metric = factor(metric, levels = metric_order)) %>%
-    arrange(metric) %>%
-    mutate(metric = as.character(metric))
+	# --- Make them a data.frame --- 
+	experiment.metrics <- do.call("rbind", d10x.metrics) 
+	rownames(experiment.metrics) <- ids 
+	df <- if (inherits(experiment.metrics, "data.frame")) { 
+		experiment.metrics 
+	} else { 
+		as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE) 
+	} 
 
-  # return
-  qc.table
+	# --- Keep only desired metrics --- 
+	keep <- c("Estimated.Number.of.Cells", 
+		  "Mean.Reads.per.Cell", 
+		  "Median.Genes.per.Cell", 
+		  "Valid.Barcodes") 
+	df_sub <- df[, keep, drop = FALSE] 
+	
+	# --- Prettify metric names --- 
+	pretty_names <- function(x) { 
+		s <- gsub("\\.", " ", x) 
+		s <- tolower(s) 
+		substr(s, 1, 1) <- toupper(substr(s, 1, 1)) 
+		s 
+	} 
+	colnames(df_sub) <- pretty_names(colnames(df_sub))
+  
+ 
+	# --- Transpose; put 'metric' first --- 
+	qc.table <- t(df_sub) 
+	qc.table <- as.data.frame(qc.table, stringsAsFactors = FALSE) 
+	qc.table$metric <- rownames(qc.table) 
+	row.names(qc.table) <- NULL 
+	qc.table <- qc.table[, c(ncol(qc.table), 1:(ncol(qc.table)-1))]
+  
+  	# --- Order metrics (optional) --- 
+	metric_order <- c("Estimated number of cells", 
+			  "Mean reads per cell", 
+			  "Median genes per cell", 
+			  "Valid barcodes") 
+	qc.table <- qc.table %>% 
+		mutate(metric = factor(metric, levels = metric_order)) %>% 
+		arrange(metric) %>% 
+		mutate(metric = as.character(metric))
+	# return 
+	qc.table
 }
 
 
-make_metric_table_from_list <- function(seurat.list, metric, sample_levels = NULL, sort_alpha = TRUE) {
-  df <- do.call(rbind, lapply(names(seurat.list), function(s) {
-    so <- seurat.list[[s]]
-    stopifnot(metric %in% colnames(so[[]]))
-    data.frame(Sample = s, value = so[[metric, drop = TRUE]],
-               row.names = colnames(so), check.names = FALSE)
-  }))
-  names(df)[2] <- metric
-  
-  if (!is.null(sample_levels)) {
-    df$Sample <- factor(df$Sample, levels = sample_levels)
-  } else if (sort_alpha) {
-    df$Sample <- factor(df$Sample, levels = sort(unique(df$Sample)))
-  } else {
-    df$Sample <- factor(df$Sample, levels = unique(df$Sample))
+# This is mostly used for putting the sample names in the right order so things are consistant in the plots
+make_metric_table_from_list <- function(seurat.list, 
+					metric, 
+					sample_levels = NULL, 
+					sort_alpha = TRUE) { 
+	df <- do.call(rbind, lapply(names(seurat.list), function(s) { 
+					    so <- seurat.list[[s]] 
+					    stopifnot(metric %in% colnames(so[[]])) 
+					    data.frame(Sample = s, value = so[[metric, drop = TRUE]], 
+						       row.names = colnames(so), check.names = FALSE) 
+				       })) 
+	names(df)[2] <- metric 
+
+	if (!is.null(sample_levels)) { 
+		df$Sample <- factor(df$Sample, levels = sample_levels) 
+	} else if (sort_alpha) { 
+		df$Sample <- factor(df$Sample, levels = sort(unique(df$Sample))) 
+	} else { 
+		df$Sample <- factor(df$Sample, levels = unique(df$Sample))
   }
   
   df
@@ -217,19 +244,23 @@ render_formatted_table <- function(input.df) {
 
 
 # helper to locate 10x paths
-read_10x_any <- function(sample.name) {
-  if (dir.exists(file.path(dataset.path, sample.name, "outs"))){
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix")
-  } else {
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix")
-  }
-  if (isTRUE(import.h5) && file.exists(tenx.h5.path)) {
-    Read10X_h5(tenx.h5.path)
-  } else {
-    Read10X(tenx.matrix.path)
-  }
+read_10x_any <- function(sample.name, dataset.path) {
+	# cfg <- get_report_cfg()
+	# dataset.path <- cfg$dataset.path
+
+	if (dir.exists(file.path(dataset.path, sample.name, "outs"))){ 
+		# tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5") 
+		tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix") 
+	} else { 
+		# tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5") 
+		tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix") 
+	} 
+
+	# if (isTRUE(import.h5) && file.exists(tenx.h5.path)) { 
+	# 	Read10X_h5(tenx.h5.path) 
+	# } else { 
+		Read10X(tenx.matrix.path)
+#   }
 }
 
 # Remove Y chromosome genes first
@@ -336,74 +367,11 @@ shaded_vln_boxplot <- function(data,
 }
 
 
-# feat_plots_top_genes <- function(cluster.num,
-#                                  seurat.obj,
-#                                  marker.genes.df,
-#                                  ggplot.dir,
-#                                  filename.suffix){
-# 
-#   saved.fig.width = 25
-#   saved.fig.height = 20
-# 
-#   # print(paste0("Cluster number ", cluster.num, ", width: ", saved.fig.width,
-#   #              ", height: ", saved.fig.height))
-#   curr.markers <- marker.genes.df[marker.genes.df$cluster == cluster.num,]
-#   num.markers.to.plot <- 6
-#   # print(head(curr.markers))
-# 
-#   feat.plot.path <- file.path(ggplot.dir,
-#                               paste0("clustering_", filename.suffix,
-#                                      "_marker_gene_featPlot_cl_", cluster.num, ".png"))
-# 
-#   vln.plot.path <- file.path(ggplot.dir,
-#                              paste0("clustering_", filename.suffix,
-#                                     "_marker_gene_vlnPlot_cl_", cluster.num, ".png"))
-# 
-#   feat.plot.list <- FeaturePlot(
-#     seurat.obj,
-#     curr.markers$gene[1:num.markers.to.plot],
-#     reduction = "umap.postint",
-#     cols = c("lightgrey", "blue"),
-#     ncol = 3,
-#     pt.size = 2,
-#     label.size = 30)
-# 
-#   # Fix the axis labels and main title sizes for the feature plots
-#   for (i in 1:num.markers.to.plot){
-#     feat.plot.list[[i]] <- feat.plot.list[[i]] + theme(axis.text.x = element_text(angle=45, hjust=1, size=30),
-#                                                        axis.text.y = element_text(size = 30),
-#                                                        plot.title = element_text(size=30))
-#   }
-# 
-#   plot.title <- ggdraw() + draw_label(paste0("Cluster ", cluster.num), fontface = 'bold', size = 30)
-#   print(cowplot::plot_grid(plot.title, feat.plot.list, ncol = 1, rel_heights = c(0.1, 1)))
-# 
-# 
-#   ggsave(feat.plot.path, width=saved.fig.width, height=saved.fig.height)
-# 
-# 
-#   vln.plot.list <- VlnPlot(object = seurat.obj,
-#                       features = curr.markers$gene[1:num.markers.to.plot],
-#                       pt.size = 0.05)
-# 
-#   # Fix the axis labels and main title sizes for the violin plots
-#   for (i in 1:num.markers.to.plot){
-#     vln.plot.list[[i]] <- vln.plot.list[[i]] + theme(axis.text.x = element_text(angle=45, hjust=1, size=30),
-#                                                        axis.text.y = element_text(size = 30),
-#                                                        plot.title = element_text(size=30))
-#   }
-#   print(cowplot::plot_grid(plot.title, vln.plot.list, ncol = 1, rel_heights = c(0.1, 1)))
-# 
-# 
-#   ggsave(vln.plot.path, width=saved.fig.width, height=saved.fig.height)
-# 
-# 
-# }
 feat_plots_top_genes <- function(cluster.num,
                                  seurat.obj,
                                  marker.genes.df,
-                                 ggplot.dir,
                                  filename.suffix,
+                                 ggplot.dir,
                                  assay.used = "SCT",
                                  genes_per_page = 6,
                                  fig_width = 9,     # inches
@@ -413,6 +381,8 @@ feat_plots_top_genes <- function(cluster.num,
                                  vln_pt_size = 0.05,
                                  base_text = 10) {
   
+	# cfg <- get_report_cfg()
+	# ggplot.dir <- cfg$ggplot.dir
   if (!dir.exists(ggplot.dir)) dir.create(ggplot.dir, recursive = TRUE, showWarnings = FALSE)
   
   # paths

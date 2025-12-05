@@ -20,10 +20,12 @@ render_report = function(suffix, template.filename){
         config.file=paste0("config",  suffix, ".yaml")
         # template.filename=paste0("scRNA_template_PART", report.num, ".Rmd")
         # output.filename=paste0("report_part", report.num, suffix, "_output.html")
+	output.name <- gsub(".Rmd", ".pdf", template.filename)
 
         rmarkdown::render(template.filename,
-                          params = list( config.args = config.file),
-                          output_file = "test.pdf" )
+                          params = list( config.args = config.file), 
+			  envir = new.env(parent = globalenv()), 
+                          output_file = output.name )
 
 }
 

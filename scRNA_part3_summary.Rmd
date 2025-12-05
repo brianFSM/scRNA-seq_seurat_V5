@@ -35,7 +35,7 @@ if (!suppressMessages(require(dplyr))) stop("dplyr is required")
 if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
 
 # Only loading this so that it shows up in the sessionInfo part of the report
-if (!suppressMessages(require(seurat))) stop("seurat is required") 
+if (!suppressMessages(require(Seurat))) stop("Seurat is required") 
 ```
 
 
@@ -137,7 +137,7 @@ For more insight on what the different metrics presented here actually mean, see
 
 ```{r prep_qc_table, eval=run_metrics_tables, message=FALSE, warning=FALSE}
 # --- Import the metrics summaries (quiet) ---
-qc.table <- make_qc_table(ids)
+qc.table <- make_qc_table(ids, dataset.path)
 render_formatted_table(qc.table)
 ```
 
@@ -272,12 +272,12 @@ merged.umap.path <- file.path(ggplot.directory, "umap_merged_seruat_obj.png")
 knitr::include_graphics(merged.umap.path)
 ```
 
-## Post-integration UMAP
+### Post-integration UMAP
 
 We integrate all of the samples together into a single object for comparison
 of cell types across samples. Go [here](https://satijalab.org/seurat/articles/integration_introduction.html) to read more about single-cell integration. 
 
-### Post-integration UMAP by sample
+## Post-integration UMAP by sample
 
 ```{r post-int_umap}
 integrated.umap.path <- file.path(ggplot.directory, "umap_sample_post_integration.png")
@@ -286,7 +286,7 @@ knitr::include_graphics(integrated.umap.path)
 ```
 
 
-## Clustering
+### Clustering
 
 To pick a clustering resolution, we look at the silhouette score, which measures 
 how well each cell fits within its assigned cluster compared to neighboring 
@@ -303,7 +303,7 @@ can merge, or be split, or we can use a different resolution to generate more or
 fewer clusters, although the overall shape of the UMAPs won't change)
 
 
-### Clusters by resolution
+## Clusters by resolution
 
 ```{r num_clusters_by_res}
 clusters.by.res.path <- file.path(ggplot.directory, "number_of_clusters_vs_resolution.png")
@@ -312,7 +312,7 @@ knitr::include_graphics(clusters.by.res.path)
 ```
 
 
-### Silhouette score by resolution
+## Silhouette score by resolution
 
 ```{r silhouette_by_res}
 sil.score.res.path <- file.path(ggplot.directory, "silhouette_score_vs_resolution.png")
@@ -321,7 +321,7 @@ knitr::include_graphics(sil.score.res.path)
 ```
 
 
-### Post-integration UMAP by cluster
+## Post-integration UMAP by cluster
 
 ```{r clusters_by_res}
 cluster.umap.path <- file.path(ggplot.directory, "umap_condition_post_integration.png")
@@ -329,7 +329,7 @@ cluster.umap.path <- file.path(ggplot.directory, "umap_condition_post_integratio
 knitr::include_graphics(cluster.umap.path)
 ```
 
-### Marker genes
+## Marker genes
 
 For each cluster, which genes are differentially expressed in that 
 cluster compared to all other clusters combined?
