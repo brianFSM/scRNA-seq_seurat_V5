@@ -1,38 +1,53 @@
 # scRNA-Seq
-# Author: Brian Wray
+## Author: Brian Wray
 
-### General instructions
+### Overview
 
-- Open a window and navigate to a quest analytics node
-- File > New Project... 
-- (In new project wizard) Version Control > Git 
-- Repository URL: https://github.com/brianFSM/scRNA-seq_seurat_V5.git
+This repository holds the pipeline and reporting templates for single-cell RNA-seq analysis using Seurat v5. The project is designed to run within the Quest environment, using renv for reproducibility and SLURM for execution.
 
-After project is created, go to quest on the command line, navigate to the newly created repository folder (which should be a subdirectory in the directory of whatever project you're working on), and copy over the renv.lock file we have on quest. This will tell the project which versions of which packges you'll use:
+### Setup
 
-cp /projects/b1197/PROJECTS/Seurat_v5_renv/November_2025/renv.lock . 
+1. Open a browser window and navigate to a quest analytics node
+2. In Rstudio: 
+* File → New Project → Version Control → Git
+* Repository URL:
+* https://github.com/brianFSM/scRNA-seq_seurat_V5.git
 
-Go back to your project in the analytics node, and at the console:
+### Configure the Environment
+Once the project exists locally, SSH into Quest and move into the cloned repository directory. Copy the shared renv.lock file:
 
-renv::init(bare=TRUE)
+`cp /projects/b1197/PROJECTS/Seurat_v5_renv/December_2025/renv.lock .`
 
-renv::restore()
+Return to the RStudio session and initialize the environment:
 
-If you've ever installed the libraries before, they will link from the cache in a flash. Otherwise they will be downloaded and compiled. 
+`renv::init(bare=TRUE)`
 
-If this is the first time you've ever run these reports, you will need to run the following from the console in the analytics node in order to get pdfs to render (the reports are now pdfs, not html files):
+`renv::restore()`
 
-install.packages("tinytex")
+If you’ve installed these packages before, they’ll symlink from cache; otherwise, they’ll build fresh.
 
-tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
+### PDF rendering requirements
 
-tinytex::is_tinytex()        # should return TRUE
+These reports build to PDF, not HTML. If TinyTeX isn’t installed, do it now:
 
-Finally, fill out your config file. 
+`install.packages("tinytex")`
 
-To run the templates from the command line on quest, do something like this:
+`tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX`
 
-$ sbatch run_templates.sh scRNA_part1_QC.Rmd
+`tinytex::is_tinytex()        # should return TRUE`
+
+### Configure the Run
+
+Edit the configuration YAML to match your data and paths.
+
+###Running Templates on Quest
+
+Submit a report via SLURM:
+
+`$ sbatch run_templates.sh scRNA_part1_QC.Rmd`
 
 In this example, the output will be scRNA_part1_QC.pdf
 
+### Notes
+The goal is reproducibility. Don’t install random packages unless you want future-you cursing present-you.
+If something breaks, it’s usually the config YAML, missing modules, or someone messing with the lockfile.
