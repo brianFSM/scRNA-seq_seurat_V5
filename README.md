@@ -15,15 +15,18 @@ cp /projects/b1197/PROJECTS/Seurat_v5_renv/November_2025/renv.lock .
 Go back to your project in the analytics node, and at the console:
 
 renv::init(bare=TRUE)
+
 renv::restore()
 
 If you've ever installed the libraries before, they will link from the cache in a flash. Otherwise they will be downloaded and compiled. 
 
 If this is the first time you've ever run these reports, you will need to run the following from the console in the analytics node in order to get pdfs to render (the reports are now pdfs, not html files):
 
-> install.packages("tinytex")
-> tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
-> tinytex::is_tinytex()        # should return TRUE
+install.packages("tinytex")
+
+tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
+
+tinytex::is_tinytex()        # should return TRUE
 
 Finally, fill out your config file. 
 
