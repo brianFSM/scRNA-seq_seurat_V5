@@ -13,7 +13,7 @@
 export MC_CORES=${SLURM_NTASKS}
 
 module purge all
-module load R/4.1.1
+module load R/4.4.0
 module load geos/3.8.1
 module load hdf5/1.8.19-serial
 module load pandoc/2.2.1
