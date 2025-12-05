@@ -52,7 +52,7 @@ cp config_template.yaml config.yaml
 
 Edit the configuration.yaml to match your data and paths.
 
-###Running Templates on Quest
+### Running Templates on Quest
 
 Submit a report via SLURM:
 
