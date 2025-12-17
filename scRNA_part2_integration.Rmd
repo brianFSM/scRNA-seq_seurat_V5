@@ -29,7 +29,7 @@ if (!suppressMessages(require(future.apply))) stop("future.apply is required")
 if (!suppressMessages(require(cowplot))) stop("cowplot is required")
 if (!suppressMessages(require(parallelly))) stop("parallelly is required")
 if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
-if (!suppressMessages(require(DoubletFinder))) stop("DoubletFinder is required")
+# if (!suppressMessages(require(DoubletFinder))) stop("DoubletFinder is required")
 
 
 # the presto lib isn't required, but FindAllMarkers runs MUCH faster with it. 

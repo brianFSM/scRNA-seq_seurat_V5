@@ -12,18 +12,25 @@
 
 export MC_CORES=${SLURM_NTASKS}
 
+# Modules loaded by quest analytics node for R/4.4.0
+# As R gets updated on the analytics node, these may change
+# Updated list is here:
+# https://rcdsdocs.it.northwestern.edu/systems/quest/software/r/r-quest.html
 module purge all
 module load R/4.4.0
-module load geos/3.8.1
-module load hdf5/1.8.19-serial
-module load pandoc/2.2.1
+# module load geos/3.8.1
+# module load pandoc/2.2.1
+module load hdf5/1.14.1-2-gcc-12.3.0
+module load gsl/2.7.1-gcc-12.3.0
+module load fftw/3.3.10-gcc-12.3.0
+module load gdal/3.7.0-gcc-12.3.0
+module load nlopt/2.7.1-gcc-12.3.0
+module load cmake/3.26.3-gcc-12.3.0
 
 rmd_file=$1
-batch=$2
 
 echo -n  "Running report file ${rmd_file} at "
 date
-
 
 # Rscript ${script}
 Rscript execute_pipeline-Ex.R ${rmd_file} ${batch}
