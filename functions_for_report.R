@@ -244,23 +244,43 @@ render_formatted_table <- function(input.df) {
 
 
 # helper to locate 10x paths
-read_10x_any <- function(sample.name, dataset.path) {
-	# cfg <- get_report_cfg()
-	# dataset.path <- cfg$dataset.path
+read_10x_any <- function(sample.name, dataset.path, type = "auto") {
+  # Define all possible paths
+  raw_paths  <- file.path(dataset.path, sample.name, c("outs/raw_feature_bc_matrix", "raw_feature_bc_matrix"))
+  filt_paths <- file.path(dataset.path, sample.name, c("outs/filtered_feature_bc_matrix", "filtered_feature_bc_matrix"))
 
-	if (dir.exists(file.path(dataset.path, sample.name, "outs"))){ 
-		# tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5") 
-		tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix") 
-	} else { 
-		# tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5") 
-		tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix") 
-	} 
+  selected_path <- NULL
 
-	# if (isTRUE(import.h5) && file.exists(tenx.h5.path)) { 
-	# 	Read10X_h5(tenx.h5.path) 
-	# } else { 
-		Read10X(tenx.matrix.path)
-#   }
+  # --- Logic Gate ---
+
+  # 1. User specifically wants RAW
+  if (type == "raw") {
+    selected_path <- raw_paths[dir.exists(raw_paths)][1]
+    if (is.na(selected_path)) stop("Raw matrix requested but not found for: ", sample.name)
+
+  # 2. User specifically wants FILTERED
+  } else if (type == "filtered") {
+    selected_path <- filt_paths[dir.exists(filt_paths)][1]
+    if (is.na(selected_path)) stop("Filtered matrix requested but not found for: ", sample.name)
+
+  # 3. Default "auto" behavior: Try raw, then filtered
+  } else {
+    if (any(dir.exists(raw_paths))) {
+      selected_path <- raw_paths[dir.exists(raw_paths)][1]
+      message("Auto-detected: Using RAW matrix for ", sample.name)
+    } else if (any(dir.exists(filt_paths))) {
+      selected_path <- filt_paths[dir.exists(filt_paths)][1]
+      message("Auto-detected: Using FILTERED matrix for ", sample.name)
+    }
+  }
+
+  # --- Final Execution ---
+  if (is.null(selected_path) || is.na(selected_path)) {
+    stop("Could not locate any 10x matrix folders for sample: ", sample.name)
+  }
+
+  message("Loading data from: ", selected_path)
+  Read10X(data.dir = selected_path)
 }
 
 # Remove Y chromosome genes first
