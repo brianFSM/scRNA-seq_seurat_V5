@@ -398,16 +398,29 @@ merged.dimplot
 integrated.reduction.label <- "integrated.rpca"
 
 options(future.globals.maxSize = +Inf)
+seurat5.obj <- readRDS(merged.seurat.obj.path)
+
+# --- START cell num check ---
+# Calculate the minimum number of cells in any layer/sample
+min.cells <- min(table(seurat5.obj$orig.ident))
+
+# Set k.weight to the minimum of 100 (default) or the smallest sample size
+k.weight.val <- min(100, min.cells - 1)
+
+message(paste("Smallest sample size is", min.cells, "- setting k.weight to", k.weight.val))
+
 
 t0 <- Sys.time()
 seurat5.obj.integrated <- IntegrateLayers(
   object = seurat5.obj,
   method = RPCAIntegration,
   normalization.method = "SCT",
-  orig.reduction = "pca",          # tell it what you computed above
+  orig.reduction = "pca",
   new.reduction = integrated.reduction.label,
+  k.weight = k.weight.val, # <--- Pass the dynamic value here
   verbose = FALSE
 )
+
 time.len <- difftime(Sys.time(), t0, units = "mins")
 
 print(paste0("IntegrateLayers took ", round(time.len, 2), " minutes to run."))
