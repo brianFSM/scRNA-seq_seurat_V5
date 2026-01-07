@@ -402,12 +402,19 @@ seurat5.obj <- readRDS(merged.seurat.obj.path)
 
 # --- START cell num check ---
 # Calculate the minimum number of cells in any layer/sample
-min.cells <- min(table(seurat5.obj$orig.ident))
+min.cells <- min(table(seurat5.obj$sample_id))
 
-# Set k.weight to the minimum of 100 (default) or the smallest sample size
-k.weight.val <- min(100, min.cells - 1)
+# Set k.weight to the minimum of 100 (default) or 70% of the smallest sample size
+# assuming a worst-case where only 70% of the cells end up acting as anchors
+if(min.cells < 150) {
+  k.weight.val <- floor(min.cells * 0.7)
+  message(paste("Warning: Smallest sample has", min.cells, "cells."))
+  message(paste("Setting k.weight conservatively to", k.weight.val, "to avoid anchor error."))
+} else {
+  k.weight.val <- 100
+}
 
-message(paste("Smallest sample size is", min.cells, "- setting k.weight to", k.weight.val))
+message(paste("Smallest sample size is", min.cells, " - setting k.weight to ", k.weight.val))
 
 
 t0 <- Sys.time()
