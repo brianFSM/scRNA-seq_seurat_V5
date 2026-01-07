@@ -398,7 +398,7 @@ merged.dimplot
 integrated.reduction.label <- "integrated.rpca"
 
 options(future.globals.maxSize = +Inf)
-seurat5.obj <- readRDS(merged.seurat.obj.path)
+# seurat5.obj <- readRDS(merged.seurat.obj.path)
 
 # --- START cell num check ---
 # Calculate the minimum number of cells in any layer/sample
