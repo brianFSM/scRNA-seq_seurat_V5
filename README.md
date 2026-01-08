@@ -7,11 +7,17 @@ This repository holds the pipeline and reporting templates for single-cell RNA-s
 
 ### Setup
 
+Option 1: analytics node
 1. Open a browser window and navigate to a quest analytics node
 2. In Rstudio: 
 * File → New Project → Version Control → Git
 * Repository URL:
 * https://github.com/brianFSM/scRNA-seq_seurat_V5.git
+
+Option 2: command line on quest
+1. git clone https://github.com/brianFSM/scRNA-seq_seurat_V5.git
+2. module purge all
+3. module load R/4.4.0
 
 ### Configure the Environment
 Once the project exists locally, SSH into Quest and move into the cloned repository directory. Copy the shared renv.lock file:
@@ -20,7 +26,7 @@ Once the project exists locally, SSH into Quest and move into the cloned reposit
 cp /projects/b1197/PROJECTS/Seurat_v5_renv/December_2025/renv.lock .
 ```
 
-Return to the RStudio session and initialize the environment:
+Return to the RStudio session in the analytics node, or start R on the command line, and initialize the environment:
 
 ```R
 renv::init(bare=TRUE)
