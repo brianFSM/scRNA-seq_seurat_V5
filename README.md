@@ -15,9 +15,10 @@ Option 1: analytics node
 * https://github.com/brianFSM/scRNA-seq_seurat_V5.git
 
 Option 2: command line on quest
-1. git clone https://github.com/brianFSM/scRNA-seq_seurat_V5.git
-2. module purge all
-3. module load R/4.4.0
+* git clone https://github.com/brianFSM/scRNA-seq_seurat_V5.git
+* cd scRNA-seq_seurat_V5
+* module purge all
+* module load R/4.4.0
 
 ### Configure the Environment
 Once the project exists locally, SSH into Quest and move into the cloned repository directory. Copy the shared renv.lock file:
