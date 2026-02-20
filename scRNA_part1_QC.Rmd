@@ -14,7 +14,7 @@ params:
 
 
 
-```{r setup}
+```{r setup, echo=FALSE}
 # install.packages("tinytex")
 # tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
 # tinytex::is_tinytex()        # should return TRUE
@@ -37,6 +37,7 @@ if (!suppressMessages(require(knitr))) stop("knitr is required")
 if (!suppressMessages(require(kableExtra))) stop("kableExtra is required")
 if (!suppressMessages(require(dplyr))) stop("dplyr is required")
 if (!suppressMessages(require(scales))) stop("scales is required")
+if (!suppressMessages(require(SoupX))) stop("SoupX is required")
 
 ```
 
@@ -70,7 +71,7 @@ project.description <- config.args$project$`project-decription`
 dataset.path <- config.args$data$parent_directory_path
 import.h5 <- config.args$data$`import-h5` # set to false if you want to import the matrix files
 organism = config.args$project$organism
-
+run.soupx <- config.args$analysis$part1$run_SoupX
 
 ################################################################################
 # Set output directory paths
@@ -187,8 +188,6 @@ qc.table <- make_qc_table(ids, dataset.path)
 render_formatted_table(qc.table)
 ```
 
-
-
 ## Load the Cell Ranger Matrix Data and create the base Seurat object.
 
 <!-- Import the 10x data (either matrices or h5) and create a merged seurat object with counts of each sample as layers. -->
@@ -202,7 +201,7 @@ Objects created for:
 # make a Seurat object per sample
 seurat.list <- lapply(ids, function(s) {
   # m <- read_10x_any(s)
-  m <- read_10x_any(s, dataset.path)
+  m <- read_10x_any(s, dataset.path, run.soupx)
   s_fixed <- gsub("-", "_", s)
   colnames(m) <- paste0(sub("-.*$", "", colnames(m)), "-", s_fixed)  # keep 10x barcode-left, add sample suffix
   o <- CreateSeuratObject(counts = m, project = experiment.name, min.features = 300)
