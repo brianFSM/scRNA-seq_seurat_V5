@@ -244,26 +244,21 @@ render_formatted_table <- function(input.df) {
 
 
 # helper to locate 10x paths
-read_10x_any <- function(sample.name, dataset.path, type = "auto") {
+read_10x_any <- function(sample.name, dataset.path, run.soupx, type = "auto") {
   # Define all possible paths
   raw_paths  <- file.path(dataset.path, sample.name, c("outs/raw_feature_bc_matrix", "raw_feature_bc_matrix"))
   filt_paths <- file.path(dataset.path, sample.name, c("outs/filtered_feature_bc_matrix", "filtered_feature_bc_matrix"))
-
   selected_path <- NULL
-
   # --- Logic Gate ---
-
   # 1. User specifically wants RAW
   if (type == "raw") {
     selected_path <- raw_paths[dir.exists(raw_paths)][1]
     if (is.na(selected_path)) stop("Raw matrix requested but not found for: ", sample.name)
-
-  # 2. User specifically wants FILTERED
+    # 2. User specifically wants FILTERED
   } else if (type == "filtered") {
     selected_path <- filt_paths[dir.exists(filt_paths)][1]
     if (is.na(selected_path)) stop("Filtered matrix requested but not found for: ", sample.name)
-
-  # 3. Default "auto" behavior: Try raw, then filtered
+    # 3. Default "auto" behavior: Try raw, then filtered
   } else {
     if (any(dir.exists(raw_paths))) {
       selected_path <- raw_paths[dir.exists(raw_paths)][1]
@@ -273,13 +268,40 @@ read_10x_any <- function(sample.name, dataset.path, type = "auto") {
       message("Auto-detected: Using FILTERED matrix for ", sample.name)
     }
   }
-
   # --- Final Execution ---
   if (is.null(selected_path) || is.na(selected_path)) {
     stop("Could not locate any 10x matrix folders for sample: ", sample.name)
   }
-
   message("Loading data from: ", selected_path)
+  
+  # --- SoupX ---
+  if (run.soupx) {
+    # SoupX requires both raw and filtered matrices
+    raw_path  <- raw_paths[dir.exists(raw_paths)][1]
+    filt_path <- filt_paths[dir.exists(filt_paths)][1]
+    if (is.na(raw_path))  stop("SoupX requires a raw matrix, but none was found for: ",      sample.name)
+    if (is.na(filt_path)) stop("SoupX requires a filtered matrix, but none was found for: ", sample.name)
+    message("Running SoupX for: ", sample.name)
+    
+    tod <- Read10X(data.dir = raw_path)   # Table of Droplets (all barcodes)
+    toc <- Read10X(data.dir = filt_path)  # Table of Counts  (cell barcodes only)
+    sc  <- SoupChannel(tod, toc)
+    
+    # Cluster cells within SoupX using a basic Seurat workflow, 
+    # as SoupX needs cluster labels to estimate the contamination fraction
+    tmp <- CreateSeuratObject(counts = toc)
+    tmp <- NormalizeData(tmp,        verbose = FALSE)
+    tmp <- FindVariableFeatures(tmp, verbose = FALSE)
+    tmp <- ScaleData(tmp,            verbose = FALSE)
+    tmp <- RunPCA(tmp,               verbose = FALSE)
+    tmp <- FindNeighbors(tmp,        verbose = FALSE)
+    tmp <- FindClusters(tmp,         verbose = FALSE)
+    sc  <- setClusters(sc, setNames(tmp$seurat_clusters, colnames(tmp)))
+    
+    sc  <- autoEstCont(sc, verbose = FALSE)
+    return(adjustCounts(sc, roundToInt = TRUE))
+  }
+  
   Read10X(data.dir = selected_path)
 }
 

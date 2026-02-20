@@ -17,6 +17,7 @@ analysis:
     part1_report_tables_filename: part1_tables_for_report.RData
     part1_suffix: ''
     generate_metrics_tables: 'TRUE'
+    run_SoupX: 'FALSE'
     ggplot_dir: ggplot
   part2:
     mito_ceiling: 5
@@ -32,6 +33,7 @@ analysis:
     clustered_seurat_obj_file: _4_seurat5_obj_clustered.RDS
     part2_report_tables_filename: part2_tables_for_report.RData
     marker_gene_dir: marker_genes
+    run_doubletFinder: 'FALSE'
     part2_suffix: ''
     clustering_resolution: None
     num_clusters: 0
