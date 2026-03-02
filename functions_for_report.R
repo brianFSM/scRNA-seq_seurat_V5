@@ -1,30 +1,10 @@
 # functions_for_report.R
 
-# Setup some directories in this scope so that things are saved properly
-
-# .report_cfg <- new.env(parent = emptyenv())
-# 
-# # called once from the Rmd to set paths
-# set_report_paths <- function(base.path = NULL,
-#                              ggplot.dir   = NULL,
-#                              dataset.path  = NULL,
-#                              out.dir   = NULL) {
-#   if (!is.null(base.path)) .report_cfg$base.path <- base.path
-#   if (!is.null(ggplot.dir))   .report_cfg$ggplot.dir   <- ggplot.dir
-#   if (!is.null(dataset.path))  .report_cfg$dataset.path  <- dataset.path
-#   if (!is.null(out.dir))   .report_cfg$out.dir   <- out.dir
-# }
-# 
-# # helper if you want it
-# get_report_cfg <- function() .report_cfg
-
 
 # Helper function that formats filenames. Allows for adding
 # suffix to config for alternate versions of analysis (e.g. 
 # different clustering resolutions, filters, etc)
 suffix_path <- function(base_dir, filename, suffix = "") { 
-	# cfg <- get_report_cfg() 
-	# base_dir <- cfg$base.dir
 
 	root <- tools::file_path_sans_ext(filename) 
 	ext  <- tools::file_ext(filename) 
@@ -58,9 +38,6 @@ sanitize_sample_names <- function(formatted.samples){
 save_png_plot <- function(p, filename, ggplot.dir,
                           width = 7, height = 5, dpi = 150) {
 
-	# cfg <- get_report_cfg()
-	# dir <- cfg$ggplot.dir 
-	
 	if (!dir.exists(ggplot.dir)) dir.create(ggplot.dir, recursive = TRUE, showWarnings = FALSE) 
 	out <- file.path(ggplot.dir,  filename) 
 	print(out)
@@ -105,13 +82,13 @@ make_qc_table <- function(ids, dataset.path){
 				})
 
 	# --- Make them a data.frame --- 
-	experiment.metrics <- do.call("rbind", d10x.metrics) 
-	rownames(experiment.metrics) <- ids 
-	df <- if (inherits(experiment.metrics, "data.frame")) { 
-		experiment.metrics 
-	} else { 
-		as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE) 
-	} 
+	df <- do.call("rbind", d10x.metrics) 
+	rownames(experiment.metrics) <- ids
+	# df <- if (inherits(experiment.metrics, "data.frame")) { 
+	# 	experiment.metrics 
+	# } else { 
+	# 	as.data.frame(do.call(rbind, experiment.metrics), stringsAsFactors = FALSE) 
+	# } 
 
 	# --- Keep only desired metrics --- 
 	keep <- c("Estimated.Number.of.Cells", 
@@ -151,7 +128,8 @@ make_qc_table <- function(ids, dataset.path){
 }
 
 
-# This is mostly used for putting the sample names in the right order so things are consistant in the plots
+# This is mostly used for putting the sample names in the right order so things 
+# are consistent in the plots
 make_metric_table_from_list <- function(seurat.list, 
 					metric, 
 					sample_levels = NULL, 
@@ -176,26 +154,26 @@ make_metric_table_from_list <- function(seurat.list,
 }
 
 
-make_metric_table <- function(obj, sample_col, metric, sample_levels = NULL, sort_alpha = TRUE) {
-  stopifnot(metric %in% colnames(obj[[]]))
-  out <- data.frame(
-    Sample = obj[[sample_col, drop = TRUE]],
-    value  = obj[[metric, drop = TRUE]],
-    row.names = colnames(obj),
-    check.names = FALSE
-  )
-  names(out)[2] <- metric
-  
-  if (!is.null(sample_levels)) {
-    out$Sample <- factor(as.character(out$Sample), levels = sample_levels)
-  } else if (sort_alpha) {
-    out$Sample <- factor(as.character(out$Sample), levels = sort(unique(as.character(out$Sample))))
-  } else {
-    out$Sample <- factor(as.character(out$Sample), levels = unique(as.character(out$Sample)))
-  }
-  out
-}
-
+# make_metric_table <- function(obj, sample_col, metric, sample_levels = NULL, sort_alpha = TRUE) {
+#   stopifnot(metric %in% colnames(obj[[]]))
+#   out <- data.frame(
+#     Sample = obj[[sample_col, drop = TRUE]],
+#     value  = obj[[metric, drop = TRUE]],
+#     row.names = colnames(obj),
+#     check.names = FALSE
+#   )
+#   names(out)[2] <- metric
+#   
+#   if (!is.null(sample_levels)) {
+#     out$Sample <- factor(as.character(out$Sample), levels = sample_levels)
+#   } else if (sort_alpha) {
+#     out$Sample <- factor(as.character(out$Sample), levels = sort(unique(as.character(out$Sample))))
+#   } else {
+#     out$Sample <- factor(as.character(out$Sample), levels = unique(as.character(out$Sample)))
+#   }
+#   out
+# }
+# 
 
 ################################################################################
 # Takes a DF and prints out a nice formatted table to the rendered PDF
@@ -208,6 +186,8 @@ render_formatted_table <- function(input.df) {
   fmt_one_cell <- function(metric, val_chr){
     if (is.na(val_chr) || val_chr == "") return(NA_character_)
     if (identical(metric, "Valid barcodes")){
+      # CellRanger stores Valid Barcodes as a percentage integer (e.g. "93") so 
+      # dividing by 100 converts it to a proportion for percent().
       v <- num_only(val_chr) / 100
       if (is.na(v)) return(NA_character_)
       percent(v, accuracy = 0.1)                # e.g. "93.8%"
@@ -277,8 +257,8 @@ read_10x_any <- function(sample.name, dataset.path, run.soupx, type = "auto") {
   # --- SoupX ---
   if (run.soupx) {
     # SoupX requires both raw and filtered matrices
-    raw_path  <- raw_paths[dir.exists(raw_paths)][1]
-    filt_path <- filt_paths[dir.exists(filt_paths)][1]
+    raw_path  <- raw_paths[raw_paths][1]
+    filt_path <- filt_paths[filt_paths][1]
     if (is.na(raw_path))  stop("SoupX requires a raw matrix, but none was found for: ",      sample.name)
     if (is.na(filt_path)) stop("SoupX requires a filtered matrix, but none was found for: ", sample.name)
     message("Running SoupX for: ", sample.name)
@@ -306,75 +286,76 @@ read_10x_any <- function(sample.name, dataset.path, run.soupx, type = "auto") {
 }
 
 # Remove Y chromosome genes first
-read_10x_no_Y_chr <- function(sample.name,
-                              y_genes_file = "y_genes_symbols.txt",
-                              verbose = TRUE) {
-  # 1) Resolve paths exactly as in read_10x_any
-  if (dir.exists(file.path(dataset.path, sample.name, "outs"))) {
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_matrix")
-  } else {
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_matrix")
-  }
-  
-  # 2) Load Y-chromosome gene names (symbols)
-  if (!file.exists(y_genes_file)) {
-    stop("Y gene list file not found: ", y_genes_file)
-  }
-  y_genes <- readLines(y_genes_file)
-  y_genes <- unique(y_genes[y_genes != ""])
-  
-  if (verbose) {
-    message("Loaded ", length(y_genes), " Y-chromosome gene symbols from: ", y_genes_file)
-  }
-  
-  # 3) Read 10x data (h5 if requested and present)
-  if (isTRUE(import.h5) && file.exists(tenx.h5.path)) {
-    mat <- Read10X_h5(tenx.h5.path)
-  } else {
-    mat <- Read10X(tenx.matrix.path)
-  }
-  
-  # 4) Remove Y genes from the matrix (or list of matrices)
-  drop_y <- function(m) {
-    if (is.null(rownames(m))) {
-      warning("Matrix has no rownames; cannot drop Y genes reliably.")
-      return(m)
-    }
-    is_y <- rownames(m) %in% y_genes
-    n_y  <- sum(is_y)
-    if (verbose) {
-      message("  Found ", n_y, " Y-chromosome genes in this feature set; removing them.")
-    }
-    m[!is_y, , drop = FALSE]
-  }
-  
-  if (is.list(mat)) {
-    # multi-modal object: apply to each
-    mat <- lapply(mat, drop_y)
-  } else {
-    mat <- drop_y(mat)
-  }
-  
-  return(mat)
-}
-read_pipseeker_any <- function(sample.name) {
-  if (dir.exists(file.path(dataset.path, sample.name, "outs"))){
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_matrix")
-  } else {
-    tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5")
-    tenx.matrix.path <- file.path(dataset.path,sample.name, "raw_matrix") # for pipseeker
-    
-    # tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix")
-  }
-  if (isTRUE(import.h5) && file.exists(tenx.h5.path)) {
-    Read10X_h5(tenx.h5.path)
-  } else {
-    Read10X(tenx.matrix.path)
-  }
-}
+# read_10x_no_Y_chr <- function(sample.name,
+#                               y_genes_file = "y_genes_symbols.txt",
+#                               verbose = TRUE) {
+#   # 1) Resolve paths exactly as in read_10x_any
+#   if (dir.exists(file.path(dataset.path, sample.name, "outs"))) {
+#     tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5")
+#     tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_matrix")
+#   } else {
+#     tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5")
+#     tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_matrix")
+#   }
+#   
+#   # 2) Load Y-chromosome gene names (symbols)
+#   if (!file.exists(y_genes_file)) {
+#     stop("Y gene list file not found: ", y_genes_file)
+#   }
+#   y_genes <- readLines(y_genes_file)
+#   y_genes <- unique(y_genes[y_genes != ""])
+#   
+#   if (verbose) {
+#     message("Loaded ", length(y_genes), " Y-chromosome gene symbols from: ", y_genes_file)
+#   }
+#   
+#   # 3) Read 10x data (h5 if requested and present)
+#   if (isTRUE(import.h5) && file.exists(tenx.h5.path)) {
+#     mat <- Read10X_h5(tenx.h5.path)
+#   } else {
+#     mat <- Read10X(tenx.matrix.path)
+#   }
+#   
+#   # 4) Remove Y genes from the matrix (or list of matrices)
+#   drop_y <- function(m) {
+#     if (is.null(rownames(m))) {
+#       warning("Matrix has no rownames; cannot drop Y genes reliably.")
+#       return(m)
+#     }
+#     is_y <- rownames(m) %in% y_genes
+#     n_y  <- sum(is_y)
+#     if (verbose) {
+#       message("  Found ", n_y, " Y-chromosome genes in this feature set; removing them.")
+#     }
+#     m[!is_y, , drop = FALSE]
+#   }
+#   
+#   if (is.list(mat)) {
+#     # multi-modal object: apply to each
+#     mat <- lapply(mat, drop_y)
+#   } else {
+#     mat <- drop_y(mat)
+#   }
+#   
+#   return(mat)
+# }
+
+# read_pipseeker_any <- function(sample.name) {
+#   if (dir.exists(file.path(dataset.path, sample.name, "outs"))){
+#     tenx.h5.path     <- file.path(dataset.path, sample.name, "outs/raw_feature_bc_matrix.h5")
+#     tenx.matrix.path <- file.path(dataset.path, sample.name, "outs/raw_matrix")
+#   } else {
+#     tenx.h5.path     <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix.h5")
+#     tenx.matrix.path <- file.path(dataset.path,sample.name, "raw_matrix") # for pipseeker
+#     
+#     # tenx.matrix.path <- file.path(dataset.path, sample.name, "raw_feature_bc_matrix")
+#   }
+#   if (isTRUE(import.h5) && file.exists(tenx.h5.path)) {
+#     Read10X_h5(tenx.h5.path)
+#   } else {
+#     Read10X(tenx.matrix.path)
+#   }
+# }
 
 
 vln_boxplot <- function(data, x, y, title) {
@@ -421,10 +402,9 @@ feat_plots_top_genes <- function(cluster.num,
                                  dpi = 150,
                                  umap_pt_size = 0.02,
                                  vln_pt_size = 0.05,
-                                 base_text = 10) {
+                                 base_text = 10,
+                                 this_reduction = "umap.postint") {
   
-	# cfg <- get_report_cfg()
-	# ggplot.dir <- cfg$ggplot.dir
   if (!dir.exists(ggplot.dir)) dir.create(ggplot.dir, recursive = TRUE, showWarnings = FALSE)
   
   # paths
@@ -450,7 +430,7 @@ feat_plots_top_genes <- function(cluster.num,
   fp_list <- Seurat::FeaturePlot(
     seurat.obj,
     features   = genes,
-    reduction  = "umap.postint",
+    reduction  = this_reduction,
     cols       = c("grey85", "navy"),
     ncol       = 3,
     pt.size    = umap_pt_size,
