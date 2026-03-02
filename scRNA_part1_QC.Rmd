@@ -51,15 +51,7 @@ formatted.date <- format(todays.date, format="%B %d %Y")
 # Import the config file
 config.args <- read_yaml(params$config.args)
 
-run_metrics_tables=TRUE
-is_tenx=TRUE
-
-metrics.table.string <- config.args$analysis$part1$generate_metrics_tables
-
-if (metrics.table.string == "FALSE"){
-  run_metrics_tables=FALSE
-}
-
+run_metrics_tables <- as.logical(config.args$analysis$part1$generate_metrics_tables)
 
 ################################################################################
 # set project variables
@@ -71,7 +63,7 @@ project.description <- config.args$project$`project-decription`
 dataset.path <- config.args$data$parent_directory_path
 import.h5 <- config.args$data$`import-h5` # set to false if you want to import the matrix files
 organism = config.args$project$organism
-run.soupx <- config.args$analysis$part1$run_SoupX
+run.soupx <- as.logical(config.args$analysis$part1$run_SoupX)
 
 ################################################################################
 # Set output directory paths
@@ -137,19 +129,8 @@ if (organism == "human"){
 ################################################################################
 
 ids <- sanitize_sample_names(formatted.samples)
-seurat.sample.names <- gsub("-", "_", formatted.samples)
+# seurat.sample.names <- gsub("-", "_", formatted.samples)
 ```
-
-```{r set_report_paths}
-# For the included functions
-# set_report_paths(
-		 # ggplot.dir <- ggplot.directory,
-		 # dataset.path <- dataset.path)
-
-```
-
-
-
 
 
 ## Report and variable details
@@ -162,6 +143,7 @@ This report was generated on `r formatted.date`
 * saving rds object to \nolinkurl{`r unfiltered.seurat.obj.path`}
 * saving file for report at \nolinkurl{`r QC.tables.path`}
 * Importing h5?: `r import.h5`
+* SoupX ambient RNA correction: `r run.soupx`
 
 ## Project Description:
 
@@ -200,13 +182,12 @@ Objects created for:
 
 # make a Seurat object per sample
 seurat.list <- lapply(ids, function(s) {
-  # m <- read_10x_any(s)
   m <- read_10x_any(s, dataset.path, run.soupx)
   s_fixed <- gsub("-", "_", s)
   colnames(m) <- paste0(sub("-.*$", "", colnames(m)), "-", s_fixed)  # keep 10x barcode-left, add sample suffix
   o <- CreateSeuratObject(counts = m, project = experiment.name, min.features = 300)
   o$sample_id <- s_fixed
-  print(paste0(unique(s_fixed)))
+  # print(paste0(unique(s_fixed)))
   o
 })
 names(seurat.list) <- gsub("-", "_", ids)
@@ -261,12 +242,6 @@ p_nCount <- vln_boxplot(data = nCount_data,
                           x = Sample, 
                           y = nCount_RNA,
                           title = "nCount_RNA Distribution per Sample")
-# p_nCount <- ggplot(nCount_data, aes(x = Sample, y = nCount_RNA)) +
-#   geom_violin() +
-#   geom_boxplot(width = 0.1) +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   ggtitle("nCount_RNA Distribution per Sample")
-
 p_nCount
 
 save_png_plot(p_nCount, "nCount_RNA_distribution.png", ggplot.directory)
@@ -352,10 +327,10 @@ seurat.obj.v5 <- merge(
   x            = seurat.list[[1]],
   y            = seurat.list[-1],
   add.cell.ids = ids,
-  project      = "MBE"
+  project      = experiment.name
 )
 
-seurat.obj.v5 <- JoinLayers(seurat.obj.v5)
+# seurat.obj.v5 <- JoinLayers(seurat.obj.v5)
 
 # The layer names are now defaults, e.g. counts.1, counts.2, etc. Rename the layers
 # with sample names
@@ -381,7 +356,7 @@ saveRDS(seurat.obj.v5, unfiltered.seurat.obj.path)
 
 
 ## Session Information
-```{r sessioinfo, eval=TRUE}
+```{r sessioninfo, eval=TRUE}
 sessionInfo()
 ```
 
