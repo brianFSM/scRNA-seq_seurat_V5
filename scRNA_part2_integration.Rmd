@@ -137,6 +137,7 @@ This report was generated on `r formatted.date`
 * RBC ceiling: `r rbc.ceiling`
 * Ribosomal floor: `r ribo.floor`
 
+* Running doubletFinder: `r run.doubletFinder`
 
 
 ```{r get_num_cores_available}
@@ -761,16 +762,6 @@ seurat5.obj.integrated <- AddMetaData(seurat5.obj.integrated,
                                        metadata = new.clusters, 
                                        col.name = clustering.resolution)
 
-# # Visualize after integration with the best resolution
-# p1_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", 
-#                    group.by = "sample_id", label = FALSE)
-# 
-# p2_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", 
-#                    group.by = clustering.resolution, label = TRUE)
-# 
-# save_png_plot(p1_post, "umap_sample_post_integration.png", ggplot.directory, width = 8, height = 6)
-# save_png_plot(p2_post, "umap_condition_post_integration.png", ggplot.directory, width = 8, height = 6)
-
 ```
 ## Table of cells from each sample per cluster
 
@@ -824,13 +815,11 @@ integrated.dimplot.by.cluster
 ## UMAP of PCA
 
 ```{r pca_plots}
-
 pca_post <- DimPlot(seurat5.obj.integrated, reduction = "pca", group.by = "sample_id", label = TRUE)
 
 
 pca_post
 save_png_plot(pca_post, "pca_integrated.png", ggplot.directory)
-
 ```
 
 # Find Markers
@@ -888,11 +877,11 @@ saveRDS(cluster.markers.RNA, file=file.path(marker.gene.dir, "cluster_markers_RN
 ## Plot markers
 
 ```{r gene_feature_plots}
-seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
-clustering.resolution <- p2$clustering_resolution
-cluster.markers.sct <- read.csv(file.path(marker.gene.dir, paste0("cluster_markers_", clustering.resolution, ".csv")))
+# seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
+# clustering.resolution <- p2$clustering_resolution
+# cluster.markers.sct <- read.csv(file.path(marker.gene.dir, paste0("cluster_markers_", clustering.resolution, ".csv")))
 
-markers <- cluster.markers.sct # or cluster.markers.RNA, or readRDS(file.path(marker.gene.dir, "cluster_markers_sct.RDS"))
+markers <- cluster.markers.sct # or cluster.markers.RNA
 
 num.clusters.list <- unique(markers$cluster)
 
