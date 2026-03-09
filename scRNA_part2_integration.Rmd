@@ -12,7 +12,7 @@ params:
 
 ```{r setup}
 knitr::opts_chunk$set(
-  warning=FALSE,error=FALSE, message=FALSE, echo=FALSE
+  warning=FALSE,error=FALSE, message=TRUE, echo=FALSE
 )
 
 source("functions_for_report.R") # This is the file that holds the R functions used in the RMD file
@@ -29,7 +29,8 @@ if (!suppressMessages(require(future.apply))) stop("future.apply is required")
 if (!suppressMessages(require(cowplot))) stop("cowplot is required")
 if (!suppressMessages(require(parallelly))) stop("parallelly is required")
 if (!suppressMessages(require(ggplot2))) stop("ggplot2 is required")
-# if (!suppressMessages(require(DoubletFinder))) stop("DoubletFinder is required")
+if (!suppressMessages(require(dplyr))) stop("dplyr is required")
+if (!suppressMessages(require(kableExtra))) stop("kableExtra is required")
 
 
 # the presto lib isn't required, but FindAllMarkers runs MUCH faster with it. 
@@ -87,6 +88,11 @@ rbc.ceiling = p2$rbc_ceiling
 ribo.floor = p2$ribo_floor
 
 node.type <- cfg.analysis$node_type
+run.doubletFinder <- as.logical(p2$run_doubletFinder)
+
+if (run.doubletFinder){ 
+  if (!suppressMessages(require(DoubletFinder))) stop("DoubletFinder is required")
+}
 
 ################################################################################
 # I/O paths
@@ -363,9 +369,75 @@ save_png_plot(p.percent.ribo.filt, "percent_ribo_filtered.png", ggplot.directory
 
 # Analysis without integration
 
+
+```{r indiv_samples_sctransform_doublet_removal, eval=run.doubletFinder}
+t0 <- Sys.time()
+
+sample.list <- SplitObject(seurat5.obj, split.by = "sample_id")
+
+sample.list <- lapply(sample.list, function(obj) {
+  # SCTransform + dim reduction
+  obj <- SCTransform(obj, verbose = FALSE)
+  obj <- RunPCA(obj, verbose = FALSE)
+  obj <- RunUMAP(obj, dims = 1:30, verbose = FALSE)
+  obj <- FindNeighbors(obj, dims = 1:30, verbose = FALSE)
+  obj <- FindClusters(obj, verbose = FALSE)
+  
+  # pK identification
+  sweep.res   <- paramSweep(obj, PCs = 1:10, sct = TRUE)
+  sweep.stats <- summarizeSweep(sweep.res, GT = FALSE)
+  bcmvn       <- find.pK(sweep.stats)
+  pk.val      <- as.numeric(as.character(bcmvn$pK[which.max(bcmvn$BCmetric)]))
+  
+  # Homotypic adjustment using fresh clusters
+  annotations    <- obj@meta.data$seurat_clusters
+  homotypic.prop <- modelHomotypic(annotations)
+  nExp_poi       <- round(0.075 * nrow(obj@meta.data))
+  nExp_poi.adj   <- round(nExp_poi * (1 - homotypic.prop))
+  
+  sample.name <- unique(obj$sample_id)
+  
+  cat(sample.name, " nCells:", ncol(obj), "| pK:", pk.val, 
+      "| nExp:", nExp_poi, "| nExp.adj:", nExp_poi.adj, "\n")
+  
+  # DoubletFinder - run 1 (unadjusted)
+  obj      <- doubletFinder(obj, PCs = 1:10, pN = 0.25, pK = pk.val,
+                             nExp = nExp_poi, reuse.pANN = NULL, sct = TRUE)
+  pann.col <- grep("pANN", names(obj[[]]), value = TRUE)
+  
+  # DoubletFinder - run 2 (homotypic adjusted)
+  obj      <- doubletFinder(obj, PCs = 1:10, pN = 0.25, pK = pk.val,
+                             nExp = nExp_poi.adj, reuse.pANN = pann.col, sct = TRUE)
+  df.col   <- tail(grep("DF.classifications", names(obj[[]]), value = TRUE), 1)
+  
+  cat("Doublets removed:", table(obj[[df.col]])[["Doublet"]], 
+      "| Singlets retained:", table(obj[[df.col]])[["Singlet"]], "\n")
+  
+  # Remove doublets
+  singlet.cells <- rownames(obj@meta.data)[obj@meta.data[[df.col]] == "Singlet"]
+  subset(obj, cells = singlet.cells)
+})
+
+# Re-merge cleaned samples
+seurat5.obj <- merge(sample.list[[1]], y = sample.list[-1])
+
+time.len <- difftime(Sys.time(), t0, units = "mins")
+print(paste0("SCTransform + DoubletFinder took ", round(time.len, 2), " minutes to run."))
+saveRDS(seurat5.obj, merged.seurat.obj.path)
+print(paste0("Saved merged object to ", merged.seurat.obj.path))
+
+
+```
+
+```{r doubletFinderMsg, eval=run.doubletFinder, results='asis'}
+cat("## Doublet Detection\n\nDoubletFinder was run on each sample individually prior to merging.\n")
+```
+
 SCTransform, PCA and UMAP generation
 
 ```{r process_merged_object}
+
+# seurat5.obj <- readRDS(merged.seurat.obj.path)
 
 t0 <- Sys.time()
 
@@ -381,10 +453,14 @@ saveRDS(seurat5.obj, merged.seurat.obj.path)
 print(paste0("Saved merged object to ", merged.seurat.obj.path))
 ```
 
-## Umap of the Seurat object before integration
+## Umap of merged, non-integrated object
 
 ```{r merged_obj_umap}
-merged.dimplot <- DimPlot(seurat5.obj, reduction = "umap", group.by = "sample_id")
+
+merged.dimplot <- DimPlot(seurat5.obj, 
+                          reduction = "umap", 
+                          group.by = "sample_id",
+                          raster=TRUE)
 
 save_png_plot(merged.dimplot, "umap_merged_seruat_obj.png", ggplot.directory)
 merged.dimplot
@@ -447,7 +523,7 @@ saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
 ```
 
 ## clustering
-```{r clustering, eval=FALSE}
+```{r inefficient_silhouette, eval=FALSE}
 ################################################################################
 # Note that using the regular silhouette function, at least for Brian when working
 # on an object with 80k+ cells, comes crashing down with this error:
@@ -461,67 +537,67 @@ saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
 # will run instead
 ################################################################################
 
-
-seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
-
-# Run FindClusters with multiple resolutions (parallelized)
-resolutions <- seq(0.01, 0.2, 0.01)
-cluster_results <- list()
-silhouette_scores <- numeric(length(resolutions))
-names(silhouette_scores) <- resolutions
-n_clusters <- numeric(length(resolutions))
-names(n_clusters) <- resolutions
-
-# Create a directory to store UMAP plots for each resolution
-cl.plot.path <- file.path(r.obj.loc, "cluster_plots")
-dir.create(cl.plot.path, showWarnings = FALSE)
-
-options(future.globals.maxSize = +Inf) 
-
-t0 <- Sys.time()
-
-res = 0.01
-  # # Parallelize clustering and evaluation
-results <- future_lapply(seq_along(resolutions), function(i) {
-# results <- lapply(seq_along(resolutions), function(i) {
-  res <- resolutions[i]
-  print(paste0("Resolution: ", res))
-
-  # Run clustering
-  # obj <- FindNeighbors(seurat5.obj.integrated, reduction = integ_reduction, dims = dims, verbose = FALSE) 
-  obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
-  # obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
-
-  # Number of clusters
-  n_clust <- length(unique(Idents(obj)))
-
-  # Compute silhouette score
-  pca_embeddings <- Embeddings(obj, reduction = "pca")[, 1:30]
-  cluster_labels <- as.numeric(Idents(obj))
-  sil <- silhouette(cluster_labels, dist(pca_embeddings))
-  sil_score <- if (length(sil) > 0) mean(sil[, "sil_width"]) else NA
-
-  # Generate UMAP plot
-  p <- DimPlot(obj, reduction = "umap", label = TRUE) +
-     ggtitle(sprintf("Resolution: %s | k=%d | Silhouette: %.3f",
-                     res, length(unique(Idents(obj))), sil_score))
-
-  # p <- DimPlot(obj, reduction = "umap", label = TRUE, group.by = paste0("integrated_snn_res.", res)) +
-  #   ggtitle(paste("Resolution:", res, "| Clusters:", n_clust, "| Silhouette:", round(sil_score, 3)))
-  ggsave(filename = file.path(cl.plot.path, paste0("/umap_clusters_res_", res, ".png")),
-         plot = p, width = 8, height = 6)
-
-  # Return results
-  list(clusters = Idents(obj), n_clusters = n_clust, silhouette_score = sil_score)
-})
-
-time.len <- difftime(Sys.time(), t0, units = "mins")
-
-print(paste0("Clustering took ", round(time.len, 2), " minutes to run."))
-
-
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
-print(paste0("Saved clustered object to ", integrated.seurat.obj.path))
+# 
+# seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
+# 
+# # Run FindClusters with multiple resolutions (parallelized)
+# resolutions <- seq(0.01, 0.2, 0.01)
+# cluster_results <- list()
+# silhouette_scores <- numeric(length(resolutions))
+# names(silhouette_scores) <- resolutions
+# n_clusters <- numeric(length(resolutions))
+# names(n_clusters) <- resolutions
+# 
+# # Create a directory to store UMAP plots for each resolution
+# cl.plot.path <- file.path(r.obj.loc, "cluster_plots")
+# dir.create(cl.plot.path, showWarnings = FALSE)
+# 
+# options(future.globals.maxSize = +Inf) 
+# 
+# t0 <- Sys.time()
+# 
+# res = 0.01
+#   # # Parallelize clustering and evaluation
+# results <- future_lapply(seq_along(resolutions), function(i) {
+# # results <- lapply(seq_along(resolutions), function(i) {
+#   res <- resolutions[i]
+#   print(paste0("Resolution: ", res))
+# 
+#   # Run clustering
+#   # obj <- FindNeighbors(seurat5.obj.integrated, reduction = integ_reduction, dims = dims, verbose = FALSE) 
+#   obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
+#   # obj <- FindClusters(seurat5.obj.integrated, resolution = res, verbose = FALSE)
+# 
+#   # Number of clusters
+#   n_clust <- length(unique(Idents(obj)))
+# 
+#   # Compute silhouette score
+#   pca_embeddings <- Embeddings(obj, reduction = "pca")[, 1:30]
+#   cluster_labels <- as.numeric(Idents(obj))
+#   sil <- silhouette(cluster_labels, dist(pca_embeddings))
+#   sil_score <- if (length(sil) > 0) mean(sil[, "sil_width"]) else NA
+# 
+#   # Generate UMAP plot
+#   p <- DimPlot(obj, reduction = "umap", label = TRUE) +
+#      ggtitle(sprintf("Resolution: %s | k=%d | Silhouette: %.3f",
+#                      res, length(unique(Idents(obj))), sil_score))
+# 
+#   # p <- DimPlot(obj, reduction = "umap", label = TRUE, group.by = paste0("integrated_snn_res.", res)) +
+#   #   ggtitle(paste("Resolution:", res, "| Clusters:", n_clust, "| Silhouette:", round(sil_score, 3)))
+#   ggsave(filename = file.path(cl.plot.path, paste0("/umap_clusters_res_", res, ".png")),
+#          plot = p, width = 8, height = 6)
+# 
+#   # Return results
+#   list(clusters = Idents(obj), n_clusters = n_clust, silhouette_score = sil_score)
+# })
+# 
+# time.len <- difftime(Sys.time(), t0, units = "mins")
+# 
+# print(paste0("Clustering took ", round(time.len, 2), " minutes to run."))
+# 
+# 
+# saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
+# print(paste0("Saved clustered object to ", integrated.seurat.obj.path))
 ```
 
 ```{r efficient_silhouette}
@@ -570,14 +646,6 @@ results <- lapply(resolutions, function(res) {
   sil  <- silhouette_sample(emb, labs, per_cluster = 1000, max_total = 5000, seed = 123)
 
   stopifnot(cluster_name %in% colnames(obj[[]]))
-  p <- DimPlot(obj, reduction = "umap", label = TRUE, group.by = cluster_name) +
-       ggtitle(sprintf("Resolution: %s | k=%d | Silhouette: %s",
-                       format(res, trim = TRUE, scientific = FALSE),
-                       length(unique(labs)),
-                       ifelse(is.na(sil), "NA", sprintf("%.3f", sil))))
-
-  ggsave(file.path(cl.plot.path, sprintf("umap_clusters_res_%s.png",
-         format(res, trim = TRUE, scientific = FALSE))), p, width = 8, height = 6)
 
   list(resolution = res, n_clusters = length(unique(labs)), silhouette = sil)
 })
@@ -585,7 +653,7 @@ results <- lapply(resolutions, function(res) {
 # Named results list if you want:
 names(results) <- format(resolutions, trim = TRUE, scientific = FALSE)
 
-saveRDS(results, file = "rds/silhouette_clustering_results.rds")
+# saveRDS(results, file = "rds/silhouette_clustering_results.rds")
 ```
 
 
@@ -637,20 +705,33 @@ save_png_plot(p_silhouette, "silhouette_score_vs_resolution.png",  ggplot.direct
 
 
 ```{r run_clustering}
+
+silhouette_scores <- sapply(results, function(x) x$silhouette)
+best_idx <- which.max(silhouette_scores)
+best_res <- results[[best_idx]]$resolution  # pull from the list, not from names()
+
+cat("Best resolution based on silhouette score:", best_res, "\n")
+
+seurat5.obj.integrated <- FindClusters(seurat5.obj.integrated,
+                                       graph.name = "int_snn",
+                                       resolution = best_res,
+                                       verbose = FALSE)
+
+
+cluster.res.prefix <- "int_snn_res."
+clustering.resolution <- paste0(cluster.res.prefix, best_res)
+num.clusters <- results[[best_idx]]$n_clusters
+
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
+cat(paste0("Saved clustered object, for clustering resolution ", clustering.resolution, 
+           " at ", integrated.seurat.obj.path))
+
+
 # Choose the best resolution based on silhouette score
 best_res <- resolutions[which.max(silhouette_scores)]
 cat("Best resolution based on silhouette score:", best_res, "\n")
 
-# Set the final clustering to the best resolution
-seurat5.obj.integrated <- FindClusters(seurat5.obj.integrated, 
-                                       resolution = best_res, 
-                                       verbose = FALSE)
-
-
-cluster.res.prefix <- "SCT_snn_res."
-clustering.resolution <- paste0(cluster.res.prefix, best_res)
-
-best_idx <- which(names(results) == as.character(best_res))
+best_idx <- which(names(results)  == as.character(best_res))
 num.clusters <- results[[best_idx]]$n_clusters
 
 ################################################################################
@@ -663,66 +744,59 @@ cfg$analysis$part2$num_clusters <- num.clusters
 yaml::write_yaml(cfg, params$config.args)
 ################################################################################
 
-# Visualize after integration with the best resolution
-p1_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", group.by = "sample_id", label = TRUE)
-p2_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", group.by = clustering.resolution, label = TRUE)
+################################################################################
+# Set the cluster numbers to be numeric so that they get printed out in sorted
+# order when printed in tables, figures, etc
+################################################################################
 
-save_png_plot(p1_post, "umap_sample_post_integration.png", ggplot.directory, width = 8, height = 6)
-save_png_plot(p2_post, "umap_condition_post_integration.png", ggplot.directory, width = 8, height = 6)
+current.idents <- Idents(seurat5.obj.integrated)
+correct.levels <- as.character(sort(as.integer(levels(current.idents))))
+Idents(seurat5.obj.integrated) <- factor(current.idents, levels = correct.levels)
 
-saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
-cat(paste0("Saved clustered object, for clustering resolution ", clustering.resolution, 
-           " at ", integrated.seurat.obj.path))
-```
+new.clusters <- factor(
+  as.character(seurat5.obj.integrated[[clustering.resolution]][, 1]),
+  levels = correct.levels
+)
+seurat5.obj.integrated <- AddMetaData(seurat5.obj.integrated, 
+                                       metadata = new.clusters, 
+                                       col.name = clustering.resolution)
 
-
-<!-- ## Doublet detection -->
-
-```{r doublet_finder, eval=FALSE}
-seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
-
-
-sweep.res.list <- paramSweep(seurat5.obj.integrated, PCs = 1:10, sct = TRUE)
-sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
-bcmvn <- find.pK(sweep.stats)
-
-annotations <- seurat5.obj.integrated.integrated[[clustering.resolution]]
-homotypic.prop <- modelHomotypic(annotations)           ## ex: annotations <- seu_kidney@meta.data$ClusteringResults
-nExp_poi <- round(0.075*nrow(seurat5.obj.integrated@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
-nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-
-## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
-seurat5.obj.integrated <- doubletFinder(seurat5.obj.integrated,  PCs = 1:10,  pN = 0.25,  pK = 0.09, 
-                             nExp = nExp_poi,  reuse.pANN = NULL,  sct = TRUE)
-
-seurat5.obj.integrated <- doubletFinder(seurat5.obj.integrated,  PCs = 1:10,  pN = 0.25,  pK = 0.09,
-                             nExp = nExp_poi.adj,  reuse.pANN = "DF.classifications_0.25_0.09_6255",
-                             sct = TRUE)
-
+# # Visualize after integration with the best resolution
+# p1_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", 
+#                    group.by = "sample_id", label = FALSE)
+# 
+# p2_post <- DimPlot(seurat5.obj.integrated, reduction = "umap.postint", 
+#                    group.by = clustering.resolution, label = TRUE)
+# 
+# save_png_plot(p1_post, "umap_sample_post_integration.png", ggplot.directory, width = 8, height = 6)
+# save_png_plot(p2_post, "umap_condition_post_integration.png", ggplot.directory, width = 8, height = 6)
 
 ```
+## Table of cells from each sample per cluster
 
-```{r remove_doublets, eval=FALSE}
-DimPlot(singlets.only, 
-        group.by = "DF.classifications_0.25_0.09_6255")
+```{r table_cells_cluster_sample}
 
+cluster.sample.table <- table(
+  Cluster = Idents(seurat5.obj.integrated),
+  Sample  = seurat5.obj.integrated$sample_id
+)
+cluster.sample.df <- as.data.frame.matrix(cluster.sample.table)
 
-singlets.only <- subset(seurat5.obj, 
-                      DF.classifications_0.25_0.09_6255  == "Singlet")
+# Add row totals
+cluster.sample.df$Total <- rowSums(cluster.sample.df)
+
+# Add column totals
+totals.row <- c(colSums(cluster.sample.df))
+cluster.sample.df <- rbind(cluster.sample.df, Total = totals.row)
+
+# Add cluster column
+cluster.sample.df <- cbind(Cluster = c(rownames(cluster.sample.df)[-nrow(cluster.sample.df)], "Total"),
+                            cluster.sample.df)
+rownames(cluster.sample.df) <- NULL
+cluster.sample.df
+
+write.csv(cluster.sample.df, file.path(r.obj.loc, "cells_perCluster_perSample.csv"), quote=FALSE)
 ```
-
-<!-- ## Ambient RNA removal -->
-
-```{r remove_ambient_RNA, eval=FALSE}
-# 3. Ambient RNA removal
-# library(SoupX)
-soup <- SoupChannel(raw_counts, filtered_counts)
-soup <- autoEstCont(soup)
-pbmc <- adjustCounts(soup)
-
-
-```
-
 
 ## Umap of the Seurat object after integration, colored by sample
 
@@ -733,6 +807,7 @@ integrated.dimplot.by.sample <- DimPlot(seurat5.obj.integrated,
 
 save_png_plot(integrated.dimplot.by.sample, "integrated_umap_by_sample.png", ggplot.directory)
 integrated.dimplot.by.sample
+
 ```
 ## Umap of the Seurat object after integration, colored by clusters 
 
@@ -813,6 +888,9 @@ saveRDS(cluster.markers.RNA, file=file.path(marker.gene.dir, "cluster_markers_RN
 ## Plot markers
 
 ```{r gene_feature_plots}
+seurat5.obj.integrated <- readRDS(integrated.seurat.obj.path)
+clustering.resolution <- p2$clustering_resolution
+cluster.markers.sct <- read.csv(file.path(marker.gene.dir, paste0("cluster_markers_", clustering.resolution, ".csv")))
 
 markers <- cluster.markers.sct # or cluster.markers.RNA, or readRDS(file.path(marker.gene.dir, "cluster_markers_sct.RDS"))
 
@@ -824,9 +902,10 @@ invisible(lapply(num.clusters.list,
                  marker.genes.df = markers,
                  ggplot.dir = ggplot.directory, 
                  filename.suffix = part2.suffix,
-                 assay.used = "SCT"))
+                 assay.used = "SCT",
+                 num_cols = 3,
+                 to_raster=FALSE))
 
-# sapply(num.clusters.list, feat_plots_top_genes)
 ```
 
 
@@ -835,3 +914,70 @@ invisible(lapply(num.clusters.list,
 sessionInfo()
 ```
 
+
+
+```{r filter_clusters, eval=FALSE}
+################################################################################
+# In some cases, there are 'clusters' identified where there are only a few 
+# cells in them and there are no markers discovered. Here is how to remove those 
+# clusters. Note that this assumes that the clusters to be removed are the 
+# highest-numbered clusters. See the commented-out code at the bottom if that's 
+# not the case.
+#
+# Also, make sure to rerun the above chunk "integrated_umap_by_cluster" to 
+# make a fresh umap of the clustering
+################################################################################
+
+# Identify clusters with too few cells
+min.cluster.size <- 5
+cluster.sizes <- table(Idents(seurat5.obj.integrated))
+small.clusters <- names(cluster.sizes[cluster.sizes <= min.cluster.size])
+cat("Removing clusters with <=", min.cluster.size, "cells:", paste(small.clusters, collapse = ", "), "\n")
+cat("Total cells to remove:", sum(cluster.sizes[small.clusters]), "\n")
+
+# Remove them
+seurat5.obj.integrated <- subset(seurat5.obj.integrated, 
+                                  idents = small.clusters, 
+                                  invert = TRUE)
+cat("Cells remaining:", ncol(seurat5.obj.integrated), "\n")
+
+# After removing them, re-run the cluster factor reordering since the levels 
+# will still reference the removed clusters:
+
+current.idents <- Idents(seurat5.obj.integrated)
+correct.levels <- as.character(sort(as.integer(levels(droplevels(current.idents)))))
+Idents(seurat5.obj.integrated) <- factor(current.idents, levels = correct.levels)
+
+# Update the config
+num.clusters <- length(levels(Idents(seurat5.obj.integrated)))
+cfg$analysis$part2$num_clusters <- num.clusters
+
+yaml::write_yaml(cfg, params$config.args)
+
+# And the object
+saveRDS(seurat5.obj.integrated, integrated.seurat.obj.path, compress=FALSE)
+
+
+################################################################################
+# Note that the code above relies on the assumption that the clusters being 
+# removed are the highest-numbered clusters, but if that's not the case
+# then you'll need to re-map the cluster IDs and adjust the marker genes table:
+################################################################################
+
+# # Remap cluster IDs to be contiguous after removal
+# old.levels <- levels(Idents(seurat5.obj.integrated))
+# new.levels <- as.character(seq(0, length(old.levels) - 1))
+# new.idents <- factor(
+#   new.levels[as.integer(Idents(seurat5.obj.integrated))],
+#   levels = new.levels
+# )
+# Idents(seurat5.obj.integrated) <- new.idents
+# seurat5.obj.integrated <- AddMetaData(seurat5.obj.integrated,
+#                                        metadata = new.idents,
+#                                        col.name = clustering.resolution)
+# 
+# # Update markers table to match new cluster IDs
+# old.to.new <- setNames(new.levels, old.levels)
+# markers$cluster <- old.to.new[as.character(markers$cluster)]
+
+```

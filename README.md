@@ -24,7 +24,7 @@ Option 2: command line on quest
 Once the project exists locally, SSH into Quest and move into the cloned repository directory. Copy the shared renv.lock file:
 
 ``` bash
-cp /projects/b1197/PROJECTS/Seurat_v5_renv/December_2025/renv.lock .
+cp /projects/b1197/PROJECTS/Seurat_v5_renv/2026_March/renv.lock .
 ```
 
 Return to the RStudio session in the analytics node, or start R on the command line, and initialize the environment:
@@ -41,7 +41,9 @@ If you’ve installed these packages before, they’ll symlink from cache; other
 
 ### PDF rendering requirements
 
-These reports build to PDF, not HTML. If TinyTeX isn’t installed, do it now:
+These reports build to PDF, not HTML. I've noticed issues (e.g. a never-ending render) when rendering these reports by hitting the 'knit' button in Rstudio on the analytics nodes, but it works fine when running the individual chunks or when sumbitting as a job with slurm.  
+
+If TinyTeX isn’t installed, do it now:
 
 ```R
 install.packages("tinytex")

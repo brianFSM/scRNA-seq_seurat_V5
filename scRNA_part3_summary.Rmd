@@ -48,8 +48,16 @@ formatted.date <- format(todays.date, format="%B %d %Y")
 # Import the config file
 config.args <- read_yaml(params$config.args)
 
+cfg <- config.args
+cfg.analysis <- cfg$analysis
+
+p1  <- cfg.analysis$part1
+p2 <- cfg.analysis$part2
+
 run_metrics_tables=TRUE
-metrics.table.string <- config.args$analysis$part1$generate_metrics_tables
+metrics.table.string <- p1$generate_metrics_tables
+run.doubletFinder <- as.logical(p2$run_doubletFinder)
+run.soupx <- as.logical(p1$run_SoupX)
 
 if (metrics.table.string == "FALSE"){
   run_metrics_tables=FALSE
@@ -59,14 +67,14 @@ if (metrics.table.string == "FALSE"){
 ################################################################################
 # set project variables
 ################################################################################
-analyst.name <- config.args$project$`analyst-name`
-formatted.samples <- config.args$project$samples # Sanitized below
-experiment.name = config.args$project$`project-name` 
-project.description <- config.args$project$`project-decription`
-dataset.path <- config.args$data$parent_directory_path
-import.h5 <- config.args$data$`import-h5` # set to false if you want to import the matrix files
-organism = config.args$project$organism
-num.clusters <- config.args$analysis$part2$num_clusters
+analyst.name <- cfg$project$`analyst-name`
+formatted.samples <- cfg$project$samples # Sanitized below
+experiment.name = cfg$project$`project-name` 
+project.description <- cfg$project$`project-decription`
+dataset.path <- cfg$data$parent_directory_path
+import.h5 <- cfg$data$`import-h5` # set to false if you want to import the matrix files
+organism = cfg$project$organism
+num.clusters <- p2$num_clusters
 
 
 ################################################################################
@@ -147,6 +155,7 @@ render_formatted_table(qc.table)
 
 These plots show select metrics of the raw data. Red-shaded areas represent what
 will be filtered out before downstream analysis
+
 
 ### Number of reads per cell raw
 
@@ -244,23 +253,52 @@ knitr::include_graphics(pct.ribo.filt.path)
 
 ```{r pct_y_filt}
 
-pct.y.filt.path <- file.path(ggplot.directory,  "percent_y_filtered.png")
+pct.y.path <- file.path(ggplot.directory,  "percent_y_distribution.png")
 
-knitr::include_graphics(pct.y.filt.path)
+knitr::include_graphics(pct.y.path)
 
 ```
+
 
 ## Filtering results
 
 Here is a table showing the number of cells before applying the filters described above,
 and then the number of cells remaining after filtering. 
 
-```{r filtering_res_table}
+\begin{landscape}
 
+```{r filtering_res_table, results='asis'}
 
+combo.table <-  read.csv(file.path(r.obj.loc, "filtering_stats_table.csv"))
 
+colnames(combo.table)[1] <- "Metric"
+
+combo.table %>%
+  kable(format = "latex",
+        booktabs = TRUE,
+        caption = "Cell counts before and after filtering",
+        row.names = FALSE) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position", "scale_down"),
+    font_size = 8
+  ) %>%
+  row_spec(0, angle = 45, font_size = 7) %>%
+  column_spec(1, bold = TRUE)
 
 ```
+
+\end{landscape}
+
+
+```{r soupxMsg, eval=run.soupx, results='asis'}
+cat("### SoupX\n\nSoupX was run on each sample individually upon import to remove ambient RNA.\n")
+```
+
+
+```{r doubletFinderMsg, eval=run.doubletFinder, results='asis'}
+cat("### Doublet Detection\n\nDoubletFinder was run on each sample individually prior to merging.\n")
+```
+
 
 # Part 2: Integration, clustering, and differential expression
 
@@ -280,7 +318,7 @@ of cell types across samples. Go [here](https://satijalab.org/seurat/articles/in
 ## Post-integration UMAP by sample
 
 ```{r post-int_umap}
-integrated.umap.path <- file.path(ggplot.directory, "umap_sample_post_integration.png")
+integrated.umap.path <- file.path(ggplot.directory, "integrated_umap_by_sample.png")
 
 knitr::include_graphics(integrated.umap.path)
 ```
@@ -320,11 +358,39 @@ sil.score.res.path <- file.path(ggplot.directory, "silhouette_score_vs_resolutio
 knitr::include_graphics(sil.score.res.path)
 ```
 
+## Number of cells from each sample in each cluster
+
+\begin{landscape}
+
+```{r cluster_sample_table, results='asis'}
+
+cluster.sample.df <- read.csv(file.path(r.obj.loc, "cells_perCluster_perSample.csv"),
+                              row.names=1)
+cluster.sample.df %>%
+  kable(format = "latex",
+        booktabs = TRUE,
+        caption = "Cell counts per cluster per sample",
+        longtable = FALSE,
+        row.names = FALSE) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position", "scale_down"),
+    font_size = 8
+  ) %>%
+  row_spec(0, angle = 45, font_size = 7) %>%
+  row_spec(nrow(cluster.sample.df), bold = TRUE) %>%  # bold Total row
+  column_spec(1, bold = TRUE) %>%                      # bold Cluster column
+  column_spec(ncol(cluster.sample.df), bold = TRUE)    # bold Total column
+
+# cluster.sample.df
+```
+
+\end{landscape}
+
 
 ## Post-integration UMAP by cluster
 
 ```{r clusters_by_res}
-cluster.umap.path <- file.path(ggplot.directory, "umap_condition_post_integration.png")
+cluster.umap.path <- file.path(ggplot.directory, "integrated_umap_by_cluster.png")
 
 knitr::include_graphics(cluster.umap.path)
 ```
@@ -333,6 +399,8 @@ knitr::include_graphics(cluster.umap.path)
 
 For each cluster, which genes are differentially expressed in that 
 cluster compared to all other clusters combined?
+
+\begin{landscape}
 
 ```{r gene_feature, fig.width = 25, fig.height = 20}
 figure.list <- list()
@@ -362,6 +430,7 @@ figure.list <- sapply(num.clusters.list, function(cluster.num){
 knitr::include_graphics(unlist(figure.list))
 ```
 
+\end{landscape}
 
 ## Session Information
 ```{r sessioinfo}

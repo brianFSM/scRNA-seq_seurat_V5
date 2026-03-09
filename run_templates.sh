@@ -8,7 +8,7 @@
 #SBATCH -N 1                 ## number of nodes
 #SBATCH -n 1                 ## number of cores
 #SBATCH -t 48:00:00          ## walltime
-#SBATCH --mem=80G
+#SBATCH --mem=130G
 
 export MC_CORES=${SLURM_NTASKS}
 
@@ -19,7 +19,7 @@ export MC_CORES=${SLURM_NTASKS}
 module purge all
 module load R/4.4.0
 # module load geos/3.8.1
-# module load pandoc/2.2.1
+module load pandoc/2.2.1
 module load hdf5/1.14.1-2-gcc-12.3.0
 module load gsl/2.7.1-gcc-12.3.0
 module load fftw/3.3.10-gcc-12.3.0
@@ -33,6 +33,6 @@ echo -n  "Running report file ${rmd_file} at "
 date
 
 # Rscript ${script}
-Rscript execute_pipeline-Ex.R ${rmd_file} ${batch}
+Rscript execute_pipeline-Ex.R ${rmd_file} 
 
 

@@ -83,7 +83,7 @@ make_qc_table <- function(ids, dataset.path){
 
 	# --- Make them a data.frame --- 
 	df <- do.call("rbind", d10x.metrics) 
-	rownames(experiment.metrics) <- ids
+	rownames(df) <- ids
 	# df <- if (inherits(experiment.metrics, "data.frame")) { 
 	# 	experiment.metrics 
 	# } else { 
@@ -154,26 +154,26 @@ make_metric_table_from_list <- function(seurat.list,
 }
 
 
-# make_metric_table <- function(obj, sample_col, metric, sample_levels = NULL, sort_alpha = TRUE) {
-#   stopifnot(metric %in% colnames(obj[[]]))
-#   out <- data.frame(
-#     Sample = obj[[sample_col, drop = TRUE]],
-#     value  = obj[[metric, drop = TRUE]],
-#     row.names = colnames(obj),
-#     check.names = FALSE
-#   )
-#   names(out)[2] <- metric
-#   
-#   if (!is.null(sample_levels)) {
-#     out$Sample <- factor(as.character(out$Sample), levels = sample_levels)
-#   } else if (sort_alpha) {
-#     out$Sample <- factor(as.character(out$Sample), levels = sort(unique(as.character(out$Sample))))
-#   } else {
-#     out$Sample <- factor(as.character(out$Sample), levels = unique(as.character(out$Sample)))
-#   }
-#   out
-# }
-# 
+make_metric_table <- function(obj, sample_col, metric, sample_levels = NULL, sort_alpha = TRUE) {
+  stopifnot(metric %in% colnames(obj[[]]))
+  out <- data.frame(
+    Sample = obj[[sample_col, drop = TRUE]],
+    value  = obj[[metric, drop = TRUE]],
+    row.names = colnames(obj),
+    check.names = FALSE
+  )
+  names(out)[2] <- metric
+
+  if (!is.null(sample_levels)) {
+    out$Sample <- factor(as.character(out$Sample), levels = sample_levels)
+  } else if (sort_alpha) {
+    out$Sample <- factor(as.character(out$Sample), levels = sort(unique(as.character(out$Sample))))
+  } else {
+    out$Sample <- factor(as.character(out$Sample), levels = unique(as.character(out$Sample)))
+  }
+  out
+}
+
 
 ################################################################################
 # Takes a DF and prints out a nice formatted table to the rendered PDF
@@ -257,9 +257,9 @@ read_10x_any <- function(sample.name, dataset.path, run.soupx, type = "auto") {
   # --- SoupX ---
   if (run.soupx) {
     # SoupX requires both raw and filtered matrices
-    raw_path  <- raw_paths[raw_paths][1]
-    filt_path <- filt_paths[filt_paths][1]
-    if (is.na(raw_path))  stop("SoupX requires a raw matrix, but none was found for: ",      sample.name)
+    raw_path <- raw_paths[dir.exists(raw_paths)][1]
+    filt_path <- filt_paths[dir.exists(filt_paths)][1]
+    if (is.na(raw_path))  stop("SoupX requires a raw matrix, but none was found for: ",      sample.name, " at ", raw_path)
     if (is.na(filt_path)) stop("SoupX requires a filtered matrix, but none was found for: ", sample.name)
     message("Running SoupX for: ", sample.name)
     
@@ -267,15 +267,26 @@ read_10x_any <- function(sample.name, dataset.path, run.soupx, type = "auto") {
     toc <- Read10X(data.dir = filt_path)  # Table of Counts  (cell barcodes only)
     sc  <- SoupChannel(tod, toc)
     
+    rm(tod); gc()  # free the large raw matrix immediately
+    
+    # downsample to keep memory manageable
+    max.cells.for.clustering <- 5000
+    if (ncol(toc) > max.cells.for.clustering) {
+      set.seed(42)
+      cells.to.use <- sample(colnames(toc), max.cells.for.clustering)
+    } else {
+      cells.to.use <- colnames(toc)
+    }
+    
     # Cluster cells within SoupX using a basic Seurat workflow, 
     # as SoupX needs cluster labels to estimate the contamination fraction
     tmp <- CreateSeuratObject(counts = toc)
-    tmp <- NormalizeData(tmp,        verbose = FALSE)
-    tmp <- FindVariableFeatures(tmp, verbose = FALSE)
-    tmp <- ScaleData(tmp,            verbose = FALSE)
-    tmp <- RunPCA(tmp,               verbose = FALSE)
-    tmp <- FindNeighbors(tmp,        verbose = FALSE)
-    tmp <- FindClusters(tmp,         verbose = FALSE)
+    tmp <- NormalizeData(tmp,                          verbose = FALSE)
+    tmp <- FindVariableFeatures(tmp, nfeatures = 1000, verbose = FALSE)
+    tmp <- ScaleData(tmp,                              verbose = FALSE)
+    tmp <- RunPCA(tmp, npcs = 10,                      verbose = FALSE)
+    tmp <- FindNeighbors(tmp, dims = 1:10, k.param = 10, verbose = FALSE)
+    tmp <- FindClusters(tmp, resolution = 0.3,         verbose = FALSE)
     sc  <- setClusters(sc, setNames(tmp$seurat_clusters, colnames(tmp)))
     
     sc  <- autoEstCont(sc, verbose = FALSE)
@@ -400,10 +411,12 @@ feat_plots_top_genes <- function(cluster.num,
                                  fig_width = 9,     # inches
                                  fig_height = 10,    # inches
                                  dpi = 150,
+                                 num_cols = 3,
                                  umap_pt_size = 0.02,
                                  vln_pt_size = 0.05,
                                  base_text = 10,
-                                 this_reduction = "umap.postint") {
+                                 this_reduction = "umap.postint",
+                                 to_raster=FALSE) {
   
   if (!dir.exists(ggplot.dir)) dir.create(ggplot.dir, recursive = TRUE, showWarnings = FALSE)
   
@@ -427,17 +440,19 @@ feat_plots_top_genes <- function(cluster.num,
   genes <- genes[seq_len(min(length(genes), genes_per_page))]
   
   # ---------- FEATURE PLOTS (rasterized) ----------
+  if ("patchwork" %in% (.packages())) detach("package:patchwork", unload = TRUE)
+  
   fp_list <- Seurat::FeaturePlot(
     seurat.obj,
     features   = genes,
     reduction  = this_reduction,
     cols       = c("grey85", "navy"),
-    ncol       = 3,
+    ncol       = num_cols,
     pt.size    = umap_pt_size,
     label.size = base_text,
-    combine    = FALSE
-    # raster     = TRUE,        # <- key for file size & speed
-    # raster.dpi = c(dpi, dpi)
+    combine    = FALSE,
+    raster     = to_raster,        # <- key for file size & speed
+    raster.dpi = c(dpi, dpi)
   )
   
   fp_list <- lapply(fp_list, function(p) {
@@ -479,7 +494,7 @@ feat_plots_top_genes <- function(cluster.num,
       )
   })
   
-  vp_grid  <- cowplot::plot_grid(plotlist = vp_list, ncol = 3)
+  vp_grid  <- cowplot::plot_grid(plotlist = vp_list, ncol = num_cols)
   title_v  <- cowplot::ggdraw() + cowplot::draw_label(
     paste0("Cluster ", cluster.num, " — top marker violins"),
     fontface = "bold", size = base_text + 2

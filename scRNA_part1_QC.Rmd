@@ -15,16 +15,13 @@ params:
 
 
 ```{r setup, echo=FALSE}
-# install.packages("tinytex")
-# tinytex::install_tinytex()   # downloads + sets up ~/.TinyTeX
-# tinytex::is_tinytex()        # should return TRUE
-
 knitr::opts_chunk$set(
   echo = FALSE, warning=FALSE,error=FALSE, message=FALSE
 )
 
 # source helpers that sit beside this Rmd
 source("functions_for_report.R")
+
 ```
 
 
@@ -179,6 +176,9 @@ Objects created for:
 
 
 ```{r make_seurat_objs}
+# To avoid any future.globals.maxSize errors:
+options(future.globals.maxSize = Inf)
+future::plan("sequential")
 
 # make a Seurat object per sample
 seurat.list <- lapply(ids, function(s) {
@@ -330,7 +330,7 @@ seurat.obj.v5 <- merge(
   project      = experiment.name
 )
 
-# seurat.obj.v5 <- JoinLayers(seurat.obj.v5)
+seurat.obj.v5 <- JoinLayers(seurat.obj.v5)
 
 # The layer names are now defaults, e.g. counts.1, counts.2, etc. Rename the layers
 # with sample names
