@@ -199,7 +199,15 @@ for (i in 1:length(seurat.list)) {
   seurat.list[[i]][["percent.mt"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = mt.marker)
   # Calculate percentage of counts from hemoglobin genes (RBC markers)
   seurat.list[[i]][["percent.hb"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = hb.marker)
-  seurat.list[[i]][["percent.y"]] <- PercentageFeatureSet(seurat.list[[i]], features = y.genes)
+  
+  # Filter out the y.genes that aren't in the object
+  y.genes.present <- intersect(y.genes, rownames(seurat.list[[i]])) 
+  if (length(y.genes.present) < length(y.genes)) { 
+    message(length(y.genes) - length(y.genes.present), " Y-chr genes not found in sample ",  
+            names(seurat.list)[i], " and will be excluded from percent.y calculation") 
+  }
+  
+  seurat.list[[i]][["percent.y"]] <- PercentageFeatureSet(seurat.list[[i]], features = y.genes.present)
   seurat.list[[i]][["percent.ribo"]] <- PercentageFeatureSet(seurat.list[[i]], pattern = ribo.marker)
   
 }
