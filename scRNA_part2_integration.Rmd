@@ -403,7 +403,7 @@ sample.list <- lapply(sample.list, function(obj) {
   
   # DoubletFinder - run 1 (unadjusted)
   obj      <- doubletFinder(obj, PCs = 1:10, pN = 0.25, pK = pk.val,
-                             nExp = nExp_poi, reuse.pANN = NULL, sct = TRUE)
+                             nExp = nExp_poi, reuse.pANN = FALSE, sct = TRUE)
   pann.col <- grep("pANN", names(obj[[]]), value = TRUE)
   
   # DoubletFinder - run 2 (homotypic adjusted)
