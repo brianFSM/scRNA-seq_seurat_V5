@@ -404,7 +404,7 @@ cluster compared to all other clusters combined?
 
 ```{r gene_feature, fig.width = 25, fig.height = 20}
 figure.list <- list()
-num.clusters.list <- 0:num.clusters
+num.clusters.list <- 0:(num.clusters-1)
 assay.used <- "SCT"
 
 # Note that knitr::include_graphics doesn't work in a loop. Instead, I'll make a list of lists of filenames
